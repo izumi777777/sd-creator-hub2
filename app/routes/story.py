@@ -343,12 +343,19 @@ def index():
         ):
             if im.story_id is not None:
                 images_by_story.setdefault(im.story_id, []).append(im)
-    flat_story_images: list[Image] = []
-    for lst in images_by_story.values():
-        flat_story_images.extend(lst)
-    image_view_urls = s3_service.batch_presigned_portal_image_view_urls(
-        flat_story_images
-    )
+    # 一覧は全ストーリー分の画像が集まるため、既定ではまとめ署名しない（S3 直列が極端に重い）。
+    image_view_urls: dict[int, str] = {}
+    if current_app.config.get("STORY_INDEX_GALLERY_PRESIGN"):
+        flat_story_images: list[Image] = []
+        for lst in images_by_story.values():
+            flat_story_images.extend(lst)
+        cap = int(current_app.config.get("STORY_INDEX_GALLERY_PRESIGN_MAX", 48))
+        if cap <= 0:
+            image_view_urls = {}
+        else:
+            image_view_urls = s3_service.batch_presigned_portal_image_view_urls(
+                flat_story_images[:cap]
+            )
     library_prompts = (
         Prompt.query.order_by(Prompt.is_starred.desc(), Prompt.created_at.desc())
         .limit(500)
@@ -1426,7 +1433,16 @@ def detail(sid: int):
     )
     sd_scheduler_enabled = bool(current_app.config.get("SD_SCHEDULER_ENABLED"))
     saved_sd_gen, saved_sd_sched = _session_saved_sd_forms(sid)
-    image_view_urls = s3_service.batch_presigned_portal_image_view_urls(story_images)
+    cap = int(current_app.config.get("STORY_DETAIL_GALLERY_PRESIGN_MAX", 72))
+    if cap <= 0:
+        to_presign: list[Image] = []
+    else:
+        to_presign = story_images[:cap]
+    image_view_urls = (
+        s3_service.batch_presigned_portal_image_view_urls(to_presign)
+        if to_presign
+        else {}
+    )
     return render_template(
         "story/detail.html",
         story=story,

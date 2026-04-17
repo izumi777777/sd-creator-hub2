@@ -118,7 +118,13 @@ def index():
     characters = Character.query.order_by(Character.name).all()
     works = Work.query.order_by(Work.title).all()
     s3_configured = s3_service.is_s3_configured()
-    image_view_urls = s3_service.batch_presigned_portal_image_view_urls(images)
+    cap = int(current_app.config.get("IMAGE_LIST_GALLERY_PRESIGN_MAX", 120))
+    if cap <= 0:
+        image_view_urls: dict[int, str] = {}
+    else:
+        image_view_urls = s3_service.batch_presigned_portal_image_view_urls(
+            images[:cap]
+        )
     return render_template(
         "image/index.html",
         images=images,

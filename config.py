@@ -78,6 +78,26 @@ class Config:
     # 任意。未設定なら Windows の Meiryo 等を自動検出。
     _overlay_font = (os.environ.get("STORY_OVERLAY_FONT_PATH") or "").strip()
     STORY_OVERLAY_FONT_PATH = _overlay_font or None
+    # ギャラリー用のまとめ署名（描画時に S3 でキー解決＋署名）。件数が多いとページが重くなるため上限を設ける。
+    # ストーリー一覧は画像が全ストーリー分まとまるため既定はオフ（1/true で有効化）。
+    STORY_INDEX_GALLERY_PRESIGN = os.environ.get(
+        "STORY_INDEX_GALLERY_PRESIGN", ""
+    ).strip().lower() in ("1", "true", "yes", "on")
+    _idx_presign_max = os.environ.get("STORY_INDEX_GALLERY_PRESIGN_MAX", "48")
+    try:
+        STORY_INDEX_GALLERY_PRESIGN_MAX = max(0, min(int(_idx_presign_max), 200))
+    except ValueError:
+        STORY_INDEX_GALLERY_PRESIGN_MAX = 48
+    _detail_presign_max = os.environ.get("STORY_DETAIL_GALLERY_PRESIGN_MAX", "72")
+    try:
+        STORY_DETAIL_GALLERY_PRESIGN_MAX = max(0, min(int(_detail_presign_max), 500))
+    except ValueError:
+        STORY_DETAIL_GALLERY_PRESIGN_MAX = 72
+    _img_list_presign_max = os.environ.get("IMAGE_LIST_GALLERY_PRESIGN_MAX", "120")
+    try:
+        IMAGE_LIST_GALLERY_PRESIGN_MAX = max(0, min(int(_img_list_presign_max), 500))
+    except ValueError:
+        IMAGE_LIST_GALLERY_PRESIGN_MAX = 120
     # 予約生成: 1 のとき run.py / gunicorn 起動中にバックグラウンドで期限到来ジョブを実行
     SD_SCHEDULER_ENABLED = os.environ.get("SD_SCHEDULER_ENABLED", "").strip().lower() in (
         "1",
