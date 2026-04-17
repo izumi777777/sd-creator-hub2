@@ -49,13 +49,17 @@
 </div>
 {%- endmacro %}
 
-{% macro speech_preset_select_row(story, sess) -%}
+{% macro speech_preset_select_row(story, ch, sess) -%}
 {%- set spi = (sess.get('speech_preset_index') if sess else '') | string | trim -%}
-<label class="text-xs text-gray-600 shrink-0" title="画像下段に載せるセリフの出所">セリフ源 <select name="speech_preset_index" class="border rounded px-1 py-0.5 text-xs max-w-[11rem]">
+{%- set rawp = (ch.get('speech_presets') if ch is mapping else none) -%}
+{%- set cprelist = rawp if (rawp is defined and rawp is sequence and rawp is not string) else [] -%}
+<label class="text-xs text-gray-600 dark:text-slate-400 shrink-0" title="シーンのプリ枠→空ならストーリー共通→両方空なら章の speech">セリフ源 <select name="speech_preset_index" class="border border-gray-300 dark:border-slate-600 rounded px-1 py-0.5 text-xs max-w-[11rem] bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">
   <option value=""{% if spi == '' %} selected{% endif %}>章の speech</option>
-  {%- for line in story.get_speech_presets() -%}
-  <option value="{{ loop.index0 }}"{% if spi == (loop.index0 | string) %} selected{% endif %}>プリセット{{ loop.index }}{% if line and line.strip() %}（{{ line.strip()[:14] }}{% if line.strip()|length > 14 %}…{% endif %}）{% endif %}</option>
-  {%- endfor -%}
+  {% for i in range(10) %}
+  {%- set cline = ((cprelist[i] if i < (cprelist|length) else '') | string | trim) -%}
+  {%- set sline = (story.get_speech_presets()[i] | string | trim) -%}
+  <option value="{{ i }}"{% if spi == (i | string) %} selected{% endif %} title="P{{ i + 1 }}">プリ{{ i + 1 }}{% if cline %}·シ{% elif sline %}·通{% endif %}</option>
+  {% endfor %}
 </select></label>
 {%- endmacro %}
 
@@ -373,7 +377,7 @@
 
 <section class="mt-8 p-4 bg-white border border-emerald-100 rounded-xl shadow-sm scroll-mt-4" id="speech-presets">
   <h2 class="text-lg font-semibold text-gray-800 mb-2">セリフプリセット（10枠）</h2>
-  <p class="text-xs text-gray-600 mb-3">よく使うセリフを登録しておき、<strong>今すぐ生成</strong>・<strong>日時予約</strong>・<strong>テキスト焼き増し</strong>の「セリフ源」から選ぶと、章の <code class="bg-gray-100 px-0.5 rounded">speech</code> の代わりにその文を画像の<strong>下段</strong>に焼き込みます。空のプリセットを選んだ場合は章の speech にフォールバックします。</p>
+  <p class="text-xs text-gray-600 mb-3">各シーン見出し直下の<strong>このシーンのセリフプリセット（10枠）</strong>を優先し、空の枠はここで登録した<strong>ストーリー共通</strong>の同番号枠へフォールバックします。「セリフ源」で番号を選ぶと、章の <code class="bg-gray-100 dark:bg-slate-700 px-0.5 rounded">speech</code> の代わりにその文を画像の<strong>下段</strong>に焼き込みます。両方空のときは章の speech にフォールバックします。</p>
   <form method="post" action="{{ url_for('story.update_speech_presets', sid=story.id) }}" class="space-y-3">
     <div class="grid sm:grid-cols-2 gap-x-3 gap-y-2">
       {% for line in story.get_speech_presets() %}
@@ -408,6 +412,24 @@
     {% if ch.notes_jp %}
     <p class="text-xs text-gray-600 mt-2 whitespace-pre-wrap border-l-2 border-gray-300 pl-2">{{ ch.notes_jp }}</p>
     {% endif %}
+    <section id="chapter-{{ ch_no_val }}-speech-presets" class="mt-3 p-3 rounded-lg border border-teal-100 dark:border-teal-900 bg-teal-50/50 dark:bg-teal-950/25 scroll-mt-4">
+      <h4 class="text-xs font-semibold text-teal-900 dark:text-teal-200 mb-1">このシーンのセリフプリセット（10枠）</h4>
+      <p class="text-[11px] text-gray-600 dark:text-slate-400 mb-2 leading-snug">このシーンだけで使い回すセリフを登録します。「セリフ源」の同じ番号では<strong>こちらが優先</strong>され、空ならページ下のストーリー共通プリセットの同番号、それも空なら章／パターンの <code class="text-[10px] bg-white dark:bg-slate-800 px-0.5 rounded">speech</code> です。</p>
+      {% set rawcsp = ch.get('speech_presets') %}
+      {% set csplist = rawcsp if (rawcsp is defined and rawcsp is sequence and rawcsp is not string) else [] %}
+      <form method="post" action="{{ url_for('story.update_chapter_speech_presets', sid=story.id) }}" class="space-y-2">
+        <input type="hidden" name="ch_no" value="{{ ch_no_val }}">
+        <div class="grid sm:grid-cols-2 gap-x-3 gap-y-2">
+          {% for i in range(10) %}
+          <div>
+            <label class="block text-[11px] font-medium text-teal-900 dark:text-teal-300 mb-0.5">プリセット {{ i + 1 }}</label>
+            <textarea name="preset_{{ i }}" rows="2" class="w-full border border-teal-200 dark:border-teal-800 rounded-lg px-2 py-1 text-xs leading-relaxed bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100" placeholder="例:「……待たせたな」">{% if i < (csplist|length) and csplist[i] is not none %}{{ csplist[i] }}{% endif %}</textarea>
+          </div>
+          {% endfor %}
+        </div>
+        <button type="submit" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700">このシーンのプリセットを保存</button>
+      </form>
+    </section>
     {% if ch.prompt_variants and ch.prompt_variants|length > 0 %}
       {% for v in ch.prompt_variants %}
       {% set svk = (ch_no_val|string) ~ '_' ~ (loop.index0|string) %}
@@ -460,7 +482,7 @@
             <label class="text-xs text-gray-600">W <input type="number" name="width" value="{{ sg.get('width', '512') }}" min="64" max="2048" step="64" class="w-16 border rounded px-1 py-0.5 text-xs"></label>
             <label class="text-xs text-gray-600">H <input type="number" name="height" value="{{ sg.get('height', '768') }}" min="64" max="2048" step="64" class="w-16 border rounded px-1 py-0.5 text-xs"></label>
             <label class="text-xs text-gray-600">seed <input type="text" name="seed" value="{{ story_seed_value_variant(sg, v) }}" inputmode="numeric" class="w-28 border rounded px-1 py-0.5 text-xs font-mono" title="-1・空・random でランダム。大きな整数も可。"></label>
-            {{ speech_preset_select_row(story, sg) }}
+            {{ speech_preset_select_row(story, ch, sg) }}
             <label class="text-xs text-gray-600 shrink-0" title="上段の title/scene を画像に載せるか">上段 <select name="overlay_include_top_story" class="border rounded px-1 py-0.5 text-xs max-w-[10rem]">
               <option value="1" {% if (sg.get('overlay_include_top_story') or '1') == '1' %}selected{% endif %}>あり</option>
               <option value="0" {% if (sg.get('overlay_include_top_story') or '1') == '0' %}selected{% endif %}>なし</option>
@@ -489,7 +511,7 @@
           <label class="text-xs text-gray-600">W <input type="number" name="width" value="{{ ss.get('width', '512') }}" min="64" max="2048" step="64" class="w-14 border rounded px-1 py-0.5 text-xs"></label>
           <label class="text-xs text-gray-600">H <input type="number" name="height" value="{{ ss.get('height', '768') }}" min="64" max="2048" step="64" class="w-14 border rounded px-1 py-0.5 text-xs"></label>
           <label class="text-xs text-gray-600">seed <input type="text" name="seed" value="{{ story_seed_value_variant(ss, v) }}" inputmode="numeric" class="w-28 border rounded px-1 py-0.5 text-xs font-mono" title="-1・空・random でランダム"></label>
-          {{ speech_preset_select_row(story, ss) }}
+          {{ speech_preset_select_row(story, ch, ss) }}
           <label class="text-xs text-gray-600 shrink-0" title="予約実行時に上段の title/scene を載せるか">上段 <select name="overlay_include_top_story" class="border rounded px-1 py-0.5 text-xs max-w-[10rem]">
             <option value="1" {% if (ss.get('overlay_include_top_story') or '1') == '1' %}selected{% endif %}>あり</option>
             <option value="0" {% if (ss.get('overlay_include_top_story') or '1') == '0' %}selected{% endif %}>なし</option>
@@ -546,7 +568,7 @@
         <label class="text-xs text-gray-600">W <input type="number" name="width" value="{{ sg.get('width', '512') }}" min="64" max="2048" step="64" class="w-16 border rounded px-1 py-0.5 text-xs"></label>
         <label class="text-xs text-gray-600">H <input type="number" name="height" value="{{ sg.get('height', '768') }}" min="64" max="2048" step="64" class="w-16 border rounded px-1 py-0.5 text-xs"></label>
         <label class="text-xs text-gray-600">seed <input type="number" name="seed" value="{{ sg.get('seed', '-1') }}" class="w-24 border rounded px-1 py-0.5 text-xs" title="-1 でランダム"></label>
-        {{ speech_preset_select_row(story, sg) }}
+        {{ speech_preset_select_row(story, ch, sg) }}
         <label class="text-xs text-gray-600 shrink-0" title="上段の title/scene を画像に載せるか">上段 <select name="overlay_include_top_story" class="border rounded px-1 py-0.5 text-xs max-w-[10rem]">
           <option value="1" {% if (sg.get('overlay_include_top_story') or '1') == '1' %}selected{% endif %}>あり</option>
           <option value="0" {% if (sg.get('overlay_include_top_story') or '1') == '0' %}selected{% endif %}>なし</option>
@@ -574,7 +596,7 @@
       <label class="text-xs text-gray-600">W <input type="number" name="width" value="{{ ss.get('width', '512') }}" min="64" max="2048" step="64" class="w-14 border rounded px-1 py-0.5 text-xs"></label>
       <label class="text-xs text-gray-600">H <input type="number" name="height" value="{{ ss.get('height', '768') }}" min="64" max="2048" step="64" class="w-14 border rounded px-1 py-0.5 text-xs"></label>
       <label class="text-xs text-gray-600">seed <input type="text" name="seed" value="{{ story_seed_value_main(ss, ch) }}" inputmode="numeric" class="w-28 border rounded px-1 py-0.5 text-xs font-mono" title="-1・空・random でランダム"></label>
-      {{ speech_preset_select_row(story, ss) }}
+      {{ speech_preset_select_row(story, ch, ss) }}
       <label class="text-xs text-gray-600 shrink-0" title="予約実行時に上段の title/scene を載せるか">上段 <select name="overlay_include_top_story" class="border rounded px-1 py-0.5 text-xs max-w-[10rem]">
         <option value="1" {% if (ss.get('overlay_include_top_story') or '1') == '1' %}selected{% endif %}>あり</option>
         <option value="0" {% if (ss.get('overlay_include_top_story') or '1') == '0' %}selected{% endif %}>なし</option>

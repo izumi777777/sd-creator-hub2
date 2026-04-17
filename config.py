@@ -21,10 +21,33 @@ class Config:
     """アプリケーション設定。"""
 
     SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "dev-key-change-in-production")
-    SQLALCHEMY_DATABASE_URI = os.environ.get(
-        "DATABASE_URL", _DEFAULT_DATABASE_URL
-    )
+    _configured_db_url = os.environ.get("DATABASE_URL", _DEFAULT_DATABASE_URL)
+    SQLALCHEMY_DATABASE_URI = _configured_db_url
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # ブラウザが多数の /image/*/preview を同時に叩くと、S3 待ちのあいだ接続がプールを占有しやすい。
+    # SQLite は既定のまま（pool_pre_ping のみ）。Postgres / MySQL 等はプールを広げる。
+    _db_scheme = (_configured_db_url or "").strip().split(":", 1)[0].lower()
+    if _db_scheme.startswith("sqlite"):
+        SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
+    else:
+        try:
+            _pool_size = int(os.environ.get("DB_POOL_SIZE", "10"))
+        except ValueError:
+            _pool_size = 10
+        try:
+            _max_overflow = int(os.environ.get("DB_MAX_OVERFLOW", "30"))
+        except ValueError:
+            _max_overflow = 30
+        try:
+            _pool_timeout = float(os.environ.get("DB_POOL_TIMEOUT", "60"))
+        except ValueError:
+            _pool_timeout = 60.0
+        SQLALCHEMY_ENGINE_OPTIONS = {
+            "pool_pre_ping": True,
+            "pool_size": max(1, min(_pool_size, 50)),
+            "max_overflow": max(0, min(_max_overflow, 100)),
+            "pool_timeout": max(5.0, min(_pool_timeout, 300.0)),
+        }
     # Google Gemini（AI Studio の API キー。GOOGLE_API_KEY でも可）
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
     GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")

@@ -1,7 +1,10 @@
 """ストーリー管理モデル。"""
 
+from __future__ import annotations
+
 import json
 from datetime import datetime
+from typing import Any
 
 from app import db
 
@@ -79,3 +82,78 @@ class Story(db.Model):
             else:
                 normalized.append("")
         self.speech_presets_json = json.dumps(normalized, ensure_ascii=False)
+
+    def find_chapter_by_no(self, ch_no: int | None) -> dict[str, Any] | None:
+        """シーン番号 no（または配列順）に一致する章 dict を返す。"""
+        if ch_no is None or ch_no < 1:
+            return None
+        for i, ch in enumerate(self.get_chapters()):
+            if not isinstance(ch, dict):
+                continue
+            no = ch.get("no")
+            try:
+                n = int(no) if no is not None else i + 1
+            except (TypeError, ValueError):
+                n = i + 1
+            if n == ch_no:
+                return ch
+        return None
+
+
+def get_chapter_speech_presets(chapter: dict[str, Any] | None) -> list[str]:
+    """chapters_json の 1 要素からセリフプリセット10枠を返す（キー欠損時は空文字）。"""
+    n = Story.SPEECH_PRESET_SLOTS
+    if not isinstance(chapter, dict):
+        return [""] * n
+    raw = chapter.get("speech_presets")
+    if raw is None:
+        return [""] * n
+    if not isinstance(raw, list):
+        return [""] * n
+    out: list[str] = []
+    for i in range(n):
+        if i < len(raw) and raw[i] is not None:
+            out.append(str(raw[i]))
+        else:
+            out.append("")
+    return out
+
+
+def set_chapter_speech_presets(chapter: dict[str, Any], lines: list[str]) -> None:
+    """章 dict に speech_presets を書き込む（全枠空ならキー削除）。"""
+    n = Story.SPEECH_PRESET_SLOTS
+    normalized: list[str] = []
+    for i in range(n):
+        if i < len(lines) and lines[i] is not None:
+            normalized.append(str(lines[i]))
+        else:
+            normalized.append("")
+    if not any(x.strip() for x in normalized):
+        chapter.pop("speech_presets", None)
+    else:
+        chapter["speech_presets"] = normalized
+
+
+def resolve_speech_bottom_override(
+    story: Story,
+    chapter: dict[str, Any] | None,
+    preset_idx: int | None,
+) -> str | None:
+    """
+    プリセット番号に対応する下段セリフ上書き文を返す。
+
+    シーンの該当枠が空ならストーリー共通枠へフォールバック。
+    両方空のときは None（呼び出し側で章／パターンの speech を使う）。
+    """
+    if preset_idx is None:
+        return None
+    n = Story.SPEECH_PRESET_SLOTS
+    if preset_idx < 0 or preset_idx >= n:
+        return None
+    if isinstance(chapter, dict):
+        cps = get_chapter_speech_presets(chapter)
+        t = cps[preset_idx].strip()
+        if t:
+            return t
+    t2 = story.get_speech_presets()[preset_idx].strip()
+    return t2 if t2 else None

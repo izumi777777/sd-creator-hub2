@@ -311,11 +311,16 @@ def preview(iid: int):
     img = Image.query.get_or_404(iid)
     if not img.s3_key:
         abort(404)
+    pk = (img.s3_key or "").strip()
+    file_name = img.file_name
+    s3_url = img.s3_url
+    # S3 解決は遅くなりがち。接続を握ったままだと並列プレビューで QueuePool が枯れるため先に返す。
+    db.session.close()
     try:
         key = s3_service.find_existing_portal_image_s3_key(
-            img.s3_key,
-            file_name=img.file_name,
-            s3_url=img.s3_url,
+            pk,
+            file_name=file_name,
+            s3_url=s3_url,
         )
         if not key:
             abort(404)
@@ -335,11 +340,15 @@ def download(iid: int):
     if not img.s3_key:
         abort(404)
     hint = (img.file_name or "").strip() or f"portal_image_{iid}.png"
+    pk = (img.s3_key or "").strip()
+    file_name = img.file_name
+    s3_url = img.s3_url
+    db.session.close()
     try:
         key = s3_service.find_existing_portal_image_s3_key(
-            img.s3_key,
-            file_name=img.file_name,
-            s3_url=img.s3_url,
+            pk,
+            file_name=file_name,
+            s3_url=s3_url,
         )
         if not key:
             abort(404)

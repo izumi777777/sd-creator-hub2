@@ -21,7 +21,11 @@ from app.models.character import Character
 from app.models.image import Image
 from app.models.prompt import Prompt
 from app.models.scheduled_image_job import ScheduledImageJob
-from app.models.story import Story
+from app.models.story import (
+    Story,
+    resolve_speech_bottom_override,
+    set_chapter_speech_presets,
+)
 from app.prompts.story_prompt import STORY_SYSTEM_PROMPT
 from app.prompts.story_recharacterize_prompt import (
     STORY_RECHARACTERIZE_SYSTEM_PROMPT,
@@ -41,7 +45,10 @@ from app.services.pixiv_text import (
     split_gemini_pixiv_sections,
     tags_block_to_pixiv_lines,
 )
-from app.services.story_existing_overlay import create_text_overlay_copy_for_story_image
+from app.services.story_existing_overlay import (
+    create_text_overlay_copy_for_story_image,
+    guess_chapter_variant_from_story_filename,
+)
 from app.services.story_sd_generation import (
     generate_chapter_images,
     normalize_batch_n_iter,
@@ -147,13 +154,6 @@ def _parse_speech_preset_index_form() -> int | None:
     if idx < 0 or idx >= Story.SPEECH_PRESET_SLOTS:
         return None
     return idx
-
-
-def _speech_bottom_override_for_story(story: Story, preset_idx: int | None) -> str | None:
-    if preset_idx is None:
-        return None
-    t = story.get_speech_presets()[preset_idx].strip()
-    return t if t else None
 
 
 def _sd_form_suffix(ch_no: int, variant_index: int | None) -> str:
@@ -1203,6 +1203,42 @@ def update_speech_presets(sid: int):
     return redirect(f"{url_for('story.detail', sid=sid)}#speech-presets")
 
 
+@bp.route("/<int:sid>/chapter-speech-presets", methods=["POST"])
+def update_chapter_speech_presets(sid: int):
+    """シーン単位のセリフプリセット10枠を chapters_json に保存する。"""
+    story = Story.query.get_or_404(sid)
+    ch_no = request.form.get("ch_no", type=int)
+    if not ch_no or ch_no < 1:
+        flash("シーン番号が不正です。", "error")
+        return redirect(url_for("story.detail", sid=sid))
+
+    lines = [request.form.get(f"preset_{i}") or "" for i in range(Story.SPEECH_PRESET_SLOTS)]
+    chapters = story.get_chapters()
+    found = False
+    for i, ch in enumerate(chapters):
+        if not isinstance(ch, dict):
+            continue
+        no = ch.get("no")
+        try:
+            n = int(no) if no is not None else i + 1
+        except (TypeError, ValueError):
+            n = i + 1
+        if n != ch_no:
+            continue
+        found = True
+        set_chapter_speech_presets(ch, lines)
+        break
+
+    if not found:
+        flash(f"シーン番号 {ch_no} が見つかりません。", "error")
+        return redirect(url_for("story.detail", sid=sid))
+
+    story.set_chapters(chapters)
+    db.session.commit()
+    flash(f"シーン {ch_no} のセリフプリセット（10枠）を保存しました。", "success")
+    return redirect(f"{url_for('story.detail', sid=sid)}#chapter-{ch_no}-speech-presets")
+
+
 @bp.route("/<int:sid>/images/<int:iid>/text-overlay", methods=["POST"])
 def create_story_image_text_overlay(sid: int, iid: int):
     """既存画像を元に章テキストを焼き込んだ別ファイルを S3 に追加し、新しい Image 行を作る。"""
@@ -1221,8 +1257,11 @@ def create_story_image_text_overlay(sid: int, iid: int):
         except ValueError:
             variant_index = None
     try:
+        g_ch, _ = guess_chapter_variant_from_story_filename(img.file_name or "")
+        eff_ch = ch_no if ch_no is not None and ch_no >= 1 else g_ch
+        ch_dict = story.find_chapter_by_no(eff_ch) if eff_ch else None
         preset_idx = _parse_speech_preset_index_form()
-        speech_override = _speech_bottom_override_for_story(story, preset_idx)
+        speech_override = resolve_speech_bottom_override(story, ch_dict, preset_idx)
         new_im = create_text_overlay_copy_for_story_image(
             story=story,
             source=img,
@@ -1368,8 +1407,9 @@ def generate_chapter_image(sid: int):
         return redirect(url_for("story.detail", sid=sid))
 
     try:
+        ch_dict = story.find_chapter_by_no(ch_no)
         preset_idx = _parse_speech_preset_index_form()
-        speech_override = _speech_bottom_override_for_story(story, preset_idx)
+        speech_override = resolve_speech_bottom_override(story, ch_dict, preset_idx)
         pairs = generate_chapter_images(
             story,
             character,

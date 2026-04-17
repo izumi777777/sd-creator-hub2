@@ -8,7 +8,7 @@ from datetime import datetime
 from app import db
 from app.models.character import Character
 from app.models.scheduled_image_job import ScheduledImageJob
-from app.models.story import Story
+from app.models.story import Story, resolve_speech_bottom_override
 from app.services.story_sd_generation import generate_chapter_images
 
 logger = logging.getLogger(__name__)
@@ -88,11 +88,10 @@ def run_due_jobs(*, max_per_tick: int = 3) -> int:
                 job, "overlay_include_speech", True
             )
             preset_idx = getattr(job, "speech_preset_index", None)
-            speech_override = None
-            if preset_idx is not None and isinstance(preset_idx, int):
-                if 0 <= preset_idx < Story.SPEECH_PRESET_SLOTS:
-                    t = story.get_speech_presets()[preset_idx].strip()
-                    speech_override = t if t else None
+            ch_dict = story.find_chapter_by_no(job.ch_no) if job.ch_no else None
+            speech_override = resolve_speech_bottom_override(
+                story, ch_dict, preset_idx if isinstance(preset_idx, int) else None
+            )
             generate_chapter_images(
                 story,
                 character,

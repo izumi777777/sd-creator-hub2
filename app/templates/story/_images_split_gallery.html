@@ -25,10 +25,18 @@
 
 {% if n_total > 0 %}
 <div class="js-story-gallery-root">
-  <p class="text-xs text-gray-500 mb-2">このストーリーの画像 <span class="font-mono text-gray-700">{{ n_total }}</span> 件
-    {% if gallery_redirect == 'index' %}（<a href="{{ url_for('story.detail', sid=sid) }}" class="text-indigo-600 hover:underline">詳細・章からの生成</a>）{% endif %}
+  {% if gallery_redirect == 'index' %}
+  <p class="mb-2">
+    <a href="{{ url_for('story.detail', sid=sid) }}" class="inline-flex items-center gap-1 rounded-md border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/50 px-2.5 py-1.5 text-xs font-medium text-indigo-800 dark:text-indigo-200 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+      ストーリー詳細・章からの生成へ
+      <span aria-hidden="true" class="font-sans">→</span>
+    </a>
+  </p>
+  {% endif %}
+  <p class="text-xs text-gray-500 mb-2">このストーリーの画像 <span class="font-mono text-gray-700 dark:text-slate-300">{{ n_total }}</span> 件
+    {% if gallery_redirect == 'index' %}（<a href="{{ url_for('story.detail', sid=sid) }}" class="text-indigo-600 dark:text-indigo-400 hover:underline">詳細・章からの生成</a>）{% endif %}
     · 内訳: 原本 {{ n_orig }} · メタなし {{ n_str }} · テキスト焼き増し {{ n_cap }} · 移行前 {{ n_leg }}
-    {% if gallery_redirect == 'detail' %}· <a href="{{ url_for('image.index', character_id=gallery_story.character_id, story_id=sid) }}" class="text-indigo-600 hover:underline">画像ページ</a>{% endif %}
+    {% if gallery_redirect == 'detail' %}· <a href="{{ url_for('image.index', character_id=gallery_story.character_id, story_id=sid) }}" class="text-indigo-600 dark:text-indigo-400 hover:underline">画像ページ</a>{% endif %}
   </p>
 
   {# チェックボックスは form= で紐づけたフォーム外にあるため、this 配下の querySelector では数えられない #}
