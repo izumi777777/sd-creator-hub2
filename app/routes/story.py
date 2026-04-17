@@ -54,6 +54,7 @@ from app.services.story_existing_overlay import (
 )
 from app.services.story_sd_generation import (
     generate_chapter_images,
+    get_progress,
     normalize_batch_n_iter,
     sanitize_cfg_scale,
     sanitize_enable_hr,
@@ -1479,6 +1480,28 @@ def bulk_delete_story_images(sid: int):
             tail += " …"
         flash(f"削除できなかった項目: {tail}", "error" if deleted == 0 else "warning")
     return _redirect_after_story_image_op(sid)
+
+
+@bp.route("/<int:sid>/generate-progress")
+def generate_progress(sid: int):
+    """
+    画像生成の現在の進捗を JSON で返すポーリング用エンドポイント。
+    オーバーレイの JavaScript が 1 秒ごとに呼び出す。
+    """
+    Story.query.get_or_404(sid)
+    progress = get_progress(sid)
+    if progress is None:
+        return jsonify({"active": False, "stage": "", "detail": "", "elapsed_sec": 0})
+    updated_at = float(progress.get("updated_at") or 0)
+    elapsed_sec = max(0, int(time.time() - updated_at))
+    return jsonify(
+        {
+            "active": True,
+            "stage": progress.get("stage") or "",
+            "detail": progress.get("detail") or "",
+            "elapsed_sec": elapsed_sec,
+        }
+    )
 
 
 @bp.route("/<int:sid>/generate-chapter-image", methods=["POST"])

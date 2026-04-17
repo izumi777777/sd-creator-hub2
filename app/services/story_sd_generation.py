@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import logging
+import threading
 import time
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -25,6 +26,36 @@ if TYPE_CHECKING:
     from app.models.story import Story
 
 logger = logging.getLogger(__name__)
+
+# 進捗ストア: {story_id: {"stage": str, "detail": str, "updated_at": float}}
+# シングルユーザーのローカルアプリ前提。スレッドセーフにするためロックを使う。
+_progress_lock = threading.Lock()
+_progress_store: dict[int, dict[str, Any]] = {}
+
+
+def _set_progress(story_id: int, stage: str, detail: str = "") -> None:
+    """現在の処理ステージを進捗ストアに書き込む（スレッドセーフ）。"""
+    with _progress_lock:
+        _progress_store[story_id] = {
+            "stage": stage,
+            "detail": detail,
+            "updated_at": time.time(),
+        }
+    logger.info("  [進捗] %s | %s", stage, detail)
+
+
+def get_progress(story_id: int) -> dict[str, Any] | None:
+    """進捗ストアから現在のステージを読み出す。"""
+    with _progress_lock:
+        row = _progress_store.get(story_id)
+        return dict(row) if row else None
+
+
+def clear_progress(story_id: int) -> None:
+    """処理完了・失敗後に進捗ストアをクリアする。"""
+    with _progress_lock:
+        _progress_store.pop(story_id, None)
+
 
 # Web UI / VRAM 負荷の上限（いずれかを満たすまで縮小はしない — 例外で拒否）
 _MAX_STEPS = 200
@@ -343,199 +374,265 @@ def generate_chapter_images(
     if not s3_service.is_s3_configured():
         raise ValueError("S3 が未設定です。")
 
-    chapters = story.get_chapters()
-    pos, neg = resolve_chapter_prompt_neg(chapters, ch_no, variant_index)
-    if not pos.strip():
-        raise ValueError("このシーンの Positive（プロンプト）が空です。")
-
-    bs, ni = normalize_batch_n_iter(batch_size, n_iter)
-    payload = build_txt2img_payload(
-        character,
-        pos,
-        neg,
-        steps=steps,
-        width=width,
-        height=height,
-        seed=seed,
-        batch_size=bs,
-        n_iter=ni,
-        cfg_scale=cfg_scale,
-        sampler_name=sampler_name,
-        enable_hr=enable_hr,
-        hr_scale=hr_scale,
-        hr_denoising_strength=hr_denoising_strength,
-        hr_second_pass_steps=hr_second_pass_steps,
-        hr_upscaler=hr_upscaler,
-    )
-    base_timeout = float(current_app.config.get("SD_WEBUI_TIMEOUT") or 600)
-    # 多枚・高ステップは API が長くなるため上限付きで延長
-    timeout = min(3600.0, base_timeout + 45.0 * (bs * ni) + 2.0 * max(0, int(payload["steps"]) - 20))
-    if payload.get("enable_hr"):
-        timeout = min(3600.0, timeout + 120.0 + 30.0 * max(0, int(payload.get("hr_second_pass_steps") or payload["steps"]) - 15))
-
-    pos_s = str(pos)
-    logger.info("=" * 50)
-    logger.info(
-        "画像生成 開始 | story_id=%s | ch=%s | variant=%s",
-        story.id,
-        ch_no,
-        variant_index,
-    )
-    logger.info(
-        "  キャラ    : %s (id=%s)",
-        character.name,
-        character.id,
-    )
-    logger.info(
-        "  モデル    : %s",
-        payload.get("override_settings", {}).get("sd_model_checkpoint", "unknown"),
-    )
-    logger.info(
-        "  サイズ    : %sx%s  steps=%s  cfg=%s  sampler=%s",
-        payload["width"],
-        payload["height"],
-        payload["steps"],
-        payload.get("cfg_scale"),
-        payload.get("sampler_name"),
-    )
-    logger.info(
-        "  バッチ    : batch=%s × n_iter=%s = 合計%s枚",
-        bs,
-        ni,
-        bs * ni,
-    )
-    if payload.get("enable_hr"):
-        logger.info(
-            "  Hi-res fix: ON | scale=%s | denoise=%s | 2nd_steps=%s",
-            payload.get("hr_scale"),
-            payload.get("denoising_strength"),
-            payload.get("hr_second_pass_steps", 0),
-        )
-    logger.info(
-        "  Positive  : %s...",
-        pos_s[:100],
-    )
-    logger.info(
-        "  Web UI URL: %s",
-        base_url,
-    )
-
-    api_start = time.perf_counter()
-    logger.info("  Web UI API 呼び出し中...")
-
+    clear_progress(story.id)
+    total_start = time.perf_counter()
     try:
-        raw_response = txt2img(base_url, payload, timeout=timeout)
-    except Exception as e:
-        elapsed_ms = int((time.perf_counter() - api_start) * 1000)
-        logger.error(
-            "画像生成 失敗 ✗ | story_id=%s ch=%s | %dms | %s",
+        _set_progress(
+            story.id,
+            "準備中",
+            f"シーン {ch_no} のプロンプトを取得しています...",
+        )
+
+        chapters = story.get_chapters()
+        pos, neg = resolve_chapter_prompt_neg(chapters, ch_no, variant_index)
+        if not pos.strip():
+            raise ValueError("このシーンの Positive（プロンプト）が空です。")
+
+        bs, ni = normalize_batch_n_iter(batch_size, n_iter)
+        payload = build_txt2img_payload(
+            character,
+            pos,
+            neg,
+            steps=steps,
+            width=width,
+            height=height,
+            seed=seed,
+            batch_size=bs,
+            n_iter=ni,
+            cfg_scale=cfg_scale,
+            sampler_name=sampler_name,
+            enable_hr=enable_hr,
+            hr_scale=hr_scale,
+            hr_denoising_strength=hr_denoising_strength,
+            hr_second_pass_steps=hr_second_pass_steps,
+            hr_upscaler=hr_upscaler,
+        )
+        base_timeout = float(current_app.config.get("SD_WEBUI_TIMEOUT") or 600)
+        # 多枚・高ステップは API が長くなるため上限付きで延長
+        timeout = min(
+            3600.0,
+            base_timeout + 45.0 * (bs * ni) + 2.0 * max(0, int(payload["steps"]) - 20),
+        )
+        if payload.get("enable_hr"):
+            timeout = min(
+                3600.0,
+                timeout
+                + 120.0
+                + 30.0 * max(0, int(payload.get("hr_second_pass_steps") or payload["steps"]) - 15),
+            )
+
+        ckpt = payload.get("override_settings", {}).get("sd_model_checkpoint", "unknown")
+        _set_progress(
+            story.id,
+            "Web UI 生成中",
+            f"モデル: {ckpt} | {payload['width']}×{payload['height']} | steps={payload['steps']} | "
+            f"batch={bs}×{ni}={bs * ni}枚 | sampler={payload.get('sampler_name')}",
+        )
+
+        pos_s = str(pos)
+        logger.info("=" * 50)
+        logger.info(
+            "画像生成 開始 | story_id=%s | ch=%s | variant=%s",
             story.id,
             ch_no,
-            elapsed_ms,
-            e,
+            variant_index,
         )
-        raise
-
-    api_ms = int((time.perf_counter() - api_start) * 1000)
-    originals = all_image_bytes(raw_response)
-    logger.info(
-        "  Web UI 完了 ✓ | %d枚受信 | %dms",
-        len(originals),
-        api_ms,
-    )
-    overlay_enabled = bool(current_app.config.get("STORY_IMAGE_TEXT_OVERLAY", True))
-    overlay_font = current_app.config.get("STORY_OVERLAY_FONT_PATH")
-    overlay_font_s = overlay_font if isinstance(overlay_font, str) else None
-    top_overlay, bottom_overlay = resolve_chapter_story_overlay_texts(
-        chapters, ch_no, variant_index, include_chapter_title=True
-    )
-    if not overlay_include_top_story:
-        top_overlay = ""
-    if (
-        overlay_include_speech
-        and speech_bottom_override is not None
-        and str(speech_bottom_override).strip()
-    ):
-        bottom_overlay = str(speech_bottom_override).strip()
-    if not overlay_include_speech:
-        bottom_overlay = ""
-
-    out: list[tuple[Image, Image]] = []
-    prefix = secure_filename(character.name) or f"char_{character.id}"
-    vpart = f"v{variant_index}" if variant_index is not None else "main"
-    run_uid = uuid.uuid4().hex[:10]
-
-    upload_start = time.perf_counter()
-    for idx, original_bytes in enumerate(originals):
         logger.info(
-            "  S3 保存中 [%d/%d] original + stripped...",
-            idx + 1,
-            len(originals),
+            "  キャラ    : %s (id=%s)",
+            character.name,
+            character.id,
         )
-        if overlay_enabled and (top_overlay or bottom_overlay):
-            original_bytes = maybe_apply_story_text_overlay(
-                original_bytes,
-                top_text=top_overlay,
-                bottom_text=bottom_overlay,
-                enabled=True,
-                font_path=overlay_font_s,
+        logger.info(
+            "  モデル    : %s",
+            ckpt,
+        )
+        logger.info(
+            "  サイズ    : %sx%s  steps=%s  cfg=%s  sampler=%s",
+            payload["width"],
+            payload["height"],
+            payload["steps"],
+            payload.get("cfg_scale"),
+            payload.get("sampler_name"),
+        )
+        logger.info(
+            "  バッチ    : batch=%s × n_iter=%s = 合計%s枚",
+            bs,
+            ni,
+            bs * ni,
+        )
+        if payload.get("enable_hr"):
+            logger.info(
+                "  Hi-res fix: ON | scale=%s | denoise=%s | 2nd_steps=%s",
+                payload.get("hr_scale"),
+                payload.get("denoising_strength"),
+                payload.get("hr_second_pass_steps", 0),
             )
-        stripped_bytes = image_metadata_service.strip_metadata_from_bytes(original_bytes)
-        orig_ct, orig_ext = _mime_and_ext(original_bytes)
-        strip_ct, strip_ext = _mime_and_ext(stripped_bytes)
-        piece = f"{run_uid}_{idx}"
-        base_orig = f"story{story.id}_ch{ch_no}_{vpart}_{piece}{orig_ext}"
-        base_strip = f"story{story.id}_ch{ch_no}_{vpart}_{piece}{strip_ext}"
-
-        key_orig = f"{prefix}/{STORAGE_ORIGINAL}/{base_orig}"
-        key_strip = f"{prefix}/{STORAGE_STRIPPED}/{base_strip}"
-
-        url_orig = s3_service.upload_file(
-            io.BytesIO(original_bytes), key_orig, content_type=orig_ct
+        logger.info(
+            "  Positive  : %s...",
+            pos_s[:100],
         )
-        url_strip = s3_service.upload_file(
-            io.BytesIO(stripped_bytes), key_strip, content_type=strip_ct
+        logger.info(
+            "  Web UI URL: %s",
+            base_url,
         )
 
-        img_orig = Image(
-            character_id=character.id,
-            story_id=story.id,
-            work_id=None,
-            storage_folder=STORAGE_ORIGINAL,
-            s3_key=key_orig,
-            s3_url=url_orig,
-            file_name=base_orig,
-            file_size=len(original_bytes),
+        api_start = time.perf_counter()
+        logger.info("  Web UI API 呼び出し中...")
+
+        try:
+            raw_response = txt2img(base_url, payload, timeout=timeout)
+        except Exception as e:
+            _set_progress(story.id, "エラー", f"Web UI 接続失敗: {e}")
+            elapsed_ms = int((time.perf_counter() - api_start) * 1000)
+            logger.error(
+                "画像生成 失敗 ✗ | story_id=%s ch=%s | %dms | %s",
+                story.id,
+                ch_no,
+                elapsed_ms,
+                e,
+            )
+            logger.info("=" * 50)
+            raise
+
+        api_ms = int((time.perf_counter() - api_start) * 1000)
+        originals = all_image_bytes(raw_response)
+        logger.info(
+            "  Web UI 完了 ✓ | %d枚受信 | %dms",
+            len(originals),
+            api_ms,
         )
-        img_strip = Image(
-            character_id=character.id,
-            story_id=story.id,
-            work_id=None,
-            storage_folder=STORAGE_STRIPPED,
-            s3_key=key_strip,
-            s3_url=url_strip,
-            file_name=base_strip,
-            file_size=len(stripped_bytes),
+        overlay_enabled = bool(current_app.config.get("STORY_IMAGE_TEXT_OVERLAY", True))
+        overlay_font = current_app.config.get("STORY_OVERLAY_FONT_PATH")
+        overlay_font_s = overlay_font if isinstance(overlay_font, str) else None
+        top_overlay, bottom_overlay = resolve_chapter_story_overlay_texts(
+            chapters, ch_no, variant_index, include_chapter_title=True
         )
-        db.session.add(img_orig)
-        db.session.add(img_strip)
-        out.append((img_orig, img_strip))
+        if not overlay_include_top_story:
+            top_overlay = ""
+        if (
+            overlay_include_speech
+            and speech_bottom_override is not None
+            and str(speech_bottom_override).strip()
+        ):
+            bottom_overlay = str(speech_bottom_override).strip()
+        if not overlay_include_speech:
+            bottom_overlay = ""
 
-    upload_ms = int((time.perf_counter() - upload_start) * 1000)
-    total_ms = api_ms + upload_ms
+        out: list[tuple[Image, Image]] = []
+        prefix = secure_filename(character.name) or f"char_{character.id}"
+        vpart = f"v{variant_index}" if variant_index is not None else "main"
+        run_uid = uuid.uuid4().hex[:10]
 
-    logger.info(
-        "画像生成 完了 ✓ | story_id=%s ch=%s | "
-        "生成%d枚 → S3保存%d件 | WebUI:%dms S3:%dms 合計:%dms",
-        story.id,
-        ch_no,
-        len(originals),
-        len(originals) * 2,
-        api_ms,
-        upload_ms,
-        total_ms,
-    )
-    logger.info("=" * 50)
+        upload_start = time.perf_counter()
+        for idx, original_bytes in enumerate(originals):
+            img_num = f"{idx + 1}/{len(originals)}"
 
-    db.session.commit()
-    return out
+            _set_progress(
+                story.id,
+                f"テキスト焼き込み [{img_num}]",
+                "章タイトル・セリフを画像に合成しています...",
+            )
+            if overlay_enabled and (top_overlay or bottom_overlay):
+                original_bytes = maybe_apply_story_text_overlay(
+                    original_bytes,
+                    top_text=top_overlay,
+                    bottom_text=bottom_overlay,
+                    enabled=True,
+                    font_path=overlay_font_s,
+                )
+
+            _set_progress(
+                story.id,
+                f"メタデータ除去 [{img_num}]",
+                "配布用にメタデータを削除しています...",
+            )
+            stripped_bytes = image_metadata_service.strip_metadata_from_bytes(original_bytes)
+            orig_ct, orig_ext = _mime_and_ext(original_bytes)
+            strip_ct, strip_ext = _mime_and_ext(stripped_bytes)
+            piece = f"{run_uid}_{idx}"
+            base_orig = f"story{story.id}_ch{ch_no}_{vpart}_{piece}{orig_ext}"
+            base_strip = f"story{story.id}_ch{ch_no}_{vpart}_{piece}{strip_ext}"
+
+            key_orig = f"{prefix}/{STORAGE_ORIGINAL}/{base_orig}"
+            key_strip = f"{prefix}/{STORAGE_STRIPPED}/{base_strip}"
+
+            _set_progress(
+                story.id,
+                f"S3 保存中（原本）[{img_num}]",
+                f"key: {key_orig}",
+            )
+            logger.info(
+                "  S3 保存中 [%d/%d] original...",
+                idx + 1,
+                len(originals),
+            )
+            url_orig = s3_service.upload_file(
+                io.BytesIO(original_bytes), key_orig, content_type=orig_ct
+            )
+
+            _set_progress(
+                story.id,
+                f"S3 保存中（配布用）[{img_num}]",
+                f"key: {key_strip}",
+            )
+            logger.info(
+                "  S3 保存中 [%d/%d] stripped...",
+                idx + 1,
+                len(originals),
+            )
+            url_strip = s3_service.upload_file(
+                io.BytesIO(stripped_bytes), key_strip, content_type=strip_ct
+            )
+
+            img_orig = Image(
+                character_id=character.id,
+                story_id=story.id,
+                work_id=None,
+                storage_folder=STORAGE_ORIGINAL,
+                s3_key=key_orig,
+                s3_url=url_orig,
+                file_name=base_orig,
+                file_size=len(original_bytes),
+            )
+            img_strip = Image(
+                character_id=character.id,
+                story_id=story.id,
+                work_id=None,
+                storage_folder=STORAGE_STRIPPED,
+                s3_key=key_strip,
+                s3_url=url_strip,
+                file_name=base_strip,
+                file_size=len(stripped_bytes),
+            )
+            db.session.add(img_orig)
+            db.session.add(img_strip)
+            out.append((img_orig, img_strip))
+
+        upload_ms = int((time.perf_counter() - upload_start) * 1000)
+        total_ms_breakdown = api_ms + upload_ms
+        total_wall_ms = int((time.perf_counter() - total_start) * 1000)
+
+        _set_progress(story.id, "DB 保存中", "画像レコードを登録しています...")
+        db.session.commit()
+
+        _set_progress(
+            story.id,
+            "完了",
+            f"{len(originals)}枚生成 | 合計{total_wall_ms}ms",
+        )
+        logger.info(
+            "画像生成 完了 ✓ | story_id=%s ch=%s | "
+            "生成%d枚 → S3保存%d件 | WebUI:%dms S3:%dms 合計:%dms",
+            story.id,
+            ch_no,
+            len(originals),
+            len(originals) * 2,
+            api_ms,
+            upload_ms,
+            total_ms_breakdown,
+        )
+        logger.info("=" * 50)
+
+        return out
+    finally:
+        clear_progress(story.id)
