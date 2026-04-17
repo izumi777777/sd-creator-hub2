@@ -1,6 +1,7 @@
 """ダッシュボード（集計・クイックリンク）。"""
 
 from flask import Blueprint, redirect, render_template, request, url_for
+from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 
 from app import db
@@ -61,7 +62,10 @@ def index():
         .all()
     )
 
-    total_revenue_works = sum(w.total_revenue for w in Work.query.all())
+    revenue_expr = (Work.sales_pict + Work.sales_dl) * Work.price
+    total_revenue_works = int(
+        db.session.query(func.coalesce(func.sum(revenue_expr), 0)).scalar() or 0
+    )
 
     return render_template(
         "dashboard/index.html",

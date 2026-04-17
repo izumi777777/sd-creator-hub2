@@ -1,6 +1,7 @@
 """Amazon S3 へのアップロード・一覧・署名付き URL。"""
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections.abc import Iterable
 from typing import Any
 from urllib.parse import quote, unquote, urlparse
@@ -425,6 +426,44 @@ def delete_object(s3_key: str) -> None:
     s3.delete_object(Bucket=bucket, Key=s3_key)
 
 
+def _batch_presign_worker(
+    app: Any,
+    iid: int,
+    pk: str,
+    file_name: str | None,
+    s3_url: str | None,
+    expiration: int,
+) -> tuple[int, str | None, str, str]:
+    """
+    1 画像分のキー解決と署名 URL 生成（スレッド用）。
+
+    Returns:
+        (image_id, resolved_key or None, original_pk, presigned_url or "")
+    """
+    orig = (pk or "").strip()
+    if not orig:
+        return (iid, None, orig, "")
+    with app.app_context():
+        try:
+            if not is_s3_configured():
+                return (iid, None, orig, "")
+            resolved = find_existing_portal_image_s3_key(
+                orig,
+                file_name=file_name,
+                s3_url=s3_url,
+            )
+            if not resolved:
+                return (iid, None, orig, "")
+            url = get_presigned_url(resolved, expiration=expiration)
+            return (iid, resolved, orig, url)
+        except Exception:
+            logger.exception(
+                "batch_presigned_portal_image_view_urls: skip image id=%s",
+                iid,
+            )
+            return (iid, None, orig, "")
+
+
 def get_presigned_url(s3_key: str, expiration: int = 900) -> str:
     """プライベートオブジェクト用の署名付き GET URL（秒）。"""
     s3 = get_s3_client()
@@ -446,8 +485,9 @@ def batch_presigned_portal_image_view_urls(
     一覧・ギャラリー描画用に、Image 行の id → 署名付き GET URL をまとめて返す。
 
     ブラウザが画像ごとに /image/<id>/preview を叩くと、その都度 S3 でキー解決が走る。
-    本関数でページ描画時に一度だけ解決・署名して img に埋め込むと往復は減るが、
-    画像件数ぶん S3 を直列で叩くため、呼び出し側は件数上限を設けること（全件は重い）。
+    本関数でページ描画時に一度だけ解決・署名して img に埋め込むと往復は減る。
+    画像件数ぶん S3 に触れるため ThreadPoolExecutor（max_workers=10）で並列化し、
+    呼び出し側でも件数上限を設けること（全件は重い）。
 
     失敗した行は辞書に含めない（テンプレ側で preview ルートにフォールバック）。
     DB の s3_key と実体が異なる場合、sync_resolved_key_to_db が真なら解決後キーを DB に反映する。
@@ -457,33 +497,58 @@ def batch_presigned_portal_image_view_urls(
 
     from app import db
 
+    app = current_app._get_current_object()
+    images_list = list(images)
+    rows: list[tuple[int, str, str | None, str | None]] = []
+    id_to_img: dict[int, Any] = {}
+    for img in images_list:
+        iid = getattr(img, "id", None)
+        if iid is None:
+            continue
+        pk = (getattr(img, "s3_key", None) or "").strip()
+        if not pk:
+            continue
+        tid = int(iid)
+        id_to_img[tid] = img
+        rows.append(
+            (
+                tid,
+                pk,
+                getattr(img, "file_name", None),
+                getattr(img, "s3_url", None),
+            )
+        )
+
     out: dict[int, str] = {}
     dirty = False
-    for img in images:
-        try:
-            iid = getattr(img, "id", None)
-            if iid is None:
-                continue
-            pk = (getattr(img, "s3_key", None) or "").strip()
-            if not pk:
-                continue
-            resolved = find_existing_portal_image_s3_key(
-                pk,
-                file_name=getattr(img, "file_name", None),
-                s3_url=getattr(img, "s3_url", None),
-            )
-            if not resolved:
-                continue
-            if sync_resolved_key_to_db and resolved != pk:
-                img.s3_key = resolved
-                dirty = True
-            out[int(iid)] = get_presigned_url(resolved, expiration=expiration)
-        except Exception:
-            logger.exception(
-                "batch_presigned_portal_image_view_urls: skip image id=%s",
-                getattr(img, "id", "?"),
-            )
-            continue
+    if rows:
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [
+                executor.submit(
+                    _batch_presign_worker,
+                    app,
+                    tid,
+                    pk,
+                    fn,
+                    su,
+                    expiration,
+                )
+                for tid, pk, fn, su in rows
+            ]
+            for fut in as_completed(futures):
+                iid, resolved, orig_pk, url = fut.result()
+                if url:
+                    out[iid] = url
+                if (
+                    sync_resolved_key_to_db
+                    and resolved
+                    and orig_pk
+                    and resolved != orig_pk
+                ):
+                    im = id_to_img.get(iid)
+                    if im is not None:
+                        im.s3_key = resolved
+                        dirty = True
 
     if dirty and sync_resolved_key_to_db:
         try:

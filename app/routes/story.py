@@ -15,6 +15,7 @@ from flask import (
     session,
     url_for,
 )
+from sqlalchemy.orm import joinedload, load_only
 
 from app import db
 from app.models.character import Character
@@ -345,8 +346,19 @@ def index():
                 flat_story_images[:cap]
             )
     library_prompts = (
-        Prompt.query.order_by(Prompt.is_starred.desc(), Prompt.created_at.desc())
-        .limit(500)
+        Prompt.query.options(
+            load_only(
+                Prompt.id,
+                Prompt.character_id,
+                Prompt.situation,
+                Prompt.positive,
+                Prompt.is_starred,
+                Prompt.created_at,
+            ),
+            joinedload(Prompt.character).load_only(Character.id, Character.name),
+        )
+        .order_by(Prompt.is_starred.desc(), Prompt.created_at.desc())
+        .limit(200)
         .all()
     )
     today = date.today()
