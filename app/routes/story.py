@@ -343,6 +343,12 @@ def index():
         ):
             if im.story_id is not None:
                 images_by_story.setdefault(im.story_id, []).append(im)
+    flat_story_images: list[Image] = []
+    for lst in images_by_story.values():
+        flat_story_images.extend(lst)
+    image_view_urls = s3_service.batch_presigned_portal_image_view_urls(
+        flat_story_images
+    )
     library_prompts = (
         Prompt.query.order_by(Prompt.is_starred.desc(), Prompt.created_at.desc())
         .limit(500)
@@ -356,6 +362,7 @@ def index():
         characters=characters,
         stories=stories,
         images_by_story=images_by_story,
+        image_view_urls=image_view_urls,
         library_prompts=library_prompts,
         default_season_month=default_season_month,
         default_season_week=default_season_week,
@@ -1419,12 +1426,14 @@ def detail(sid: int):
     )
     sd_scheduler_enabled = bool(current_app.config.get("SD_SCHEDULER_ENABLED"))
     saved_sd_gen, saved_sd_sched = _session_saved_sd_forms(sid)
+    image_view_urls = s3_service.batch_presigned_portal_image_view_urls(story_images)
     return render_template(
         "story/detail.html",
         story=story,
         chapters=chapters,
         chapters_json_pretty=chapters_json_pretty,
         story_images=story_images,
+        image_view_urls=image_view_urls,
         all_characters=all_characters,
         sd_generation_ready=sd_generation_ready,
         scheduled_jobs=scheduled_jobs,

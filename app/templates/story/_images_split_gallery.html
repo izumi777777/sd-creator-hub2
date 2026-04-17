@@ -18,6 +18,11 @@
 {% else %}{% set first_tab = '' %}
 {% endif %}
 
+{# ページ描画時にまとめ署名した URL があれば img に直接使い、各画像ごとの /preview 往復を省略する #}
+{% macro gallery_image_view_url(img) -%}
+{{ (image_view_urls|default({})).get(img.id) or url_for('image.preview', iid=img.id) }}
+{%- endmacro %}
+
 {% if n_total > 0 %}
 <div class="js-story-gallery-root">
   <p class="text-xs text-gray-500 mb-2">このストーリーの画像 <span class="font-mono text-gray-700">{{ n_total }}</span> 件
@@ -73,8 +78,8 @@
             <input type="checkbox" name="image_ids" value="{{ img.id }}" form="story-images-bulk-form-{{ sid }}" class="story-img-cb h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
           </label>
           {% if img.s3_key %}
-          <a href="{{ url_for('image.preview', iid=img.id) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
-            <img src="{{ url_for('image.preview', iid=img.id) }}" alt="" class="w-full h-full object-contain" loading="lazy">
+          <a href="{{ gallery_image_view_url(img) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
+            <img src="{{ gallery_image_view_url(img) }}" alt="" class="w-full h-full object-contain" loading="lazy">
           </a>
           {% elif img.s3_url %}
           <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">
@@ -113,8 +118,8 @@
             <input type="checkbox" name="image_ids" value="{{ img.id }}" form="story-images-bulk-form-{{ sid }}" class="story-img-cb h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
           </label>
           {% if img.s3_key %}
-          <a href="{{ url_for('image.preview', iid=img.id) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
-            <img src="{{ url_for('image.preview', iid=img.id) }}" alt="" class="w-full h-full object-contain" loading="lazy">
+          <a href="{{ gallery_image_view_url(img) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
+            <img src="{{ gallery_image_view_url(img) }}" alt="" class="w-full h-full object-contain" loading="lazy">
           </a>
           {% elif img.s3_url %}
           <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">
@@ -153,8 +158,8 @@
             <input type="checkbox" name="image_ids" value="{{ img.id }}" form="story-images-bulk-form-{{ sid }}" class="story-img-cb h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
           </label>
           {% if img.s3_key %}
-          <a href="{{ url_for('image.preview', iid=img.id) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
-            <img src="{{ url_for('image.preview', iid=img.id) }}" alt="" class="w-full h-full object-contain" loading="lazy">
+          <a href="{{ gallery_image_view_url(img) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
+            <img src="{{ gallery_image_view_url(img) }}" alt="" class="w-full h-full object-contain" loading="lazy">
           </a>
           {% elif img.s3_url %}
           <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">
@@ -192,8 +197,8 @@
             <input type="checkbox" name="image_ids" value="{{ img.id }}" form="story-images-bulk-form-{{ sid }}" class="story-img-cb h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
           </label>
           {% if img.s3_key %}
-          <a href="{{ url_for('image.preview', iid=img.id) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
-            <img src="{{ url_for('image.preview', iid=img.id) }}" alt="" class="w-full h-full object-contain" loading="lazy">
+          <a href="{{ gallery_image_view_url(img) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
+            <img src="{{ gallery_image_view_url(img) }}" alt="" class="w-full h-full object-contain" loading="lazy">
           </a>
           {% elif img.s3_url %}
           <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">

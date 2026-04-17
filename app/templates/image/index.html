@@ -1,14 +1,18 @@
 {% extends "base.html" %}
 {% block title %}画像 — Creator Portal{% endblock %}
 
+{% macro image_card_view_url(img) -%}
+{{ (image_view_urls|default({})).get(img.id) or url_for('image.preview', iid=img.id) }}
+{%- endmacro %}
+
 {% macro image_card(img) %}
 <article class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm relative">
   <label class="absolute top-2 left-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded border border-gray-200 bg-white/95 shadow-sm" title="一括削除に含める">
     <input type="checkbox" name="image_ids" value="{{ img.id }}" form="image-bulk-delete-form" class="image-img-cb h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
   </label>
   {% if img.s3_key %}
-  <a href="{{ url_for('image.preview', iid=img.id) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
-    <img src="{{ url_for('image.preview', iid=img.id) }}" alt="" class="w-full h-full object-contain" loading="lazy">
+  <a href="{{ image_card_view_url(img) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
+    <img src="{{ image_card_view_url(img) }}" alt="" class="w-full h-full object-contain" loading="lazy">
   </a>
   {% elif img.s3_url %}
   <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">

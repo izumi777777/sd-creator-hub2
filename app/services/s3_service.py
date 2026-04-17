@@ -1,6 +1,7 @@
 """Amazon S3 へのアップロード・一覧・署名付き URL。"""
 
 import logging
+from collections.abc import Iterable
 from typing import Any
 from urllib.parse import quote, unquote, urlparse
 
@@ -433,6 +434,64 @@ def get_presigned_url(s3_key: str, expiration: int = 900) -> str:
         Params={"Bucket": bucket, "Key": s3_key},
         ExpiresIn=expiration,
     )
+
+
+def batch_presigned_portal_image_view_urls(
+    images: Iterable[Any],
+    *,
+    expiration: int = 3600,
+    sync_resolved_key_to_db: bool = True,
+) -> dict[int, str]:
+    """
+    一覧・ギャラリー描画用に、Image 行の id → 署名付き GET URL をまとめて返す。
+
+    ブラウザが画像ごとに /image/<id>/preview を叩くと、その都度 S3 でキー解決が走る。
+    本関数でページ描画時に一度だけ解決・署名して img に埋め込むと往復が減り表示が速くなる。
+
+    失敗した行は辞書に含めない（テンプレ側で preview ルートにフォールバック）。
+    DB の s3_key と実体が異なる場合、sync_resolved_key_to_db が真なら解決後キーを DB に反映する。
+    """
+    if not is_s3_configured():
+        return {}
+
+    from app import db
+
+    out: dict[int, str] = {}
+    dirty = False
+    for img in images:
+        try:
+            iid = getattr(img, "id", None)
+            if iid is None:
+                continue
+            pk = (getattr(img, "s3_key", None) or "").strip()
+            if not pk:
+                continue
+            resolved = find_existing_portal_image_s3_key(
+                pk,
+                file_name=getattr(img, "file_name", None),
+                s3_url=getattr(img, "s3_url", None),
+            )
+            if not resolved:
+                continue
+            if sync_resolved_key_to_db and resolved != pk:
+                img.s3_key = resolved
+                dirty = True
+            out[int(iid)] = get_presigned_url(resolved, expiration=expiration)
+        except Exception:
+            logger.exception(
+                "batch_presigned_portal_image_view_urls: skip image id=%s",
+                getattr(img, "id", "?"),
+            )
+            continue
+
+    if dirty and sync_resolved_key_to_db:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            logger.exception("batch_presigned_portal_image_view_urls: DB commit に失敗")
+
+    return out
 
 
 def get_presigned_download_url(

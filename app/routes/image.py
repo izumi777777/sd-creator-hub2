@@ -118,9 +118,11 @@ def index():
     characters = Character.query.order_by(Character.name).all()
     works = Work.query.order_by(Work.title).all()
     s3_configured = s3_service.is_s3_configured()
+    image_view_urls = s3_service.batch_presigned_portal_image_view_urls(images)
     return render_template(
         "image/index.html",
         images=images,
+        image_view_urls=image_view_urls,
         images_split=images_split,
         images_original=images_original,
         images_stripped=images_stripped,
