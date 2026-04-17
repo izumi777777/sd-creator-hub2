@@ -469,13 +469,18 @@ LoRA 名（指定時は各シーン positive 末尾に lora:名:1 を付与）: 
 {seasonal_addon}
     """.strip()
 
+    max_tok = int(current_app.config.get("GEMINI_STORY_MAX_OUTPUT_TOKENS", 65536))
+    logger.info(
+        "story.generate: Gemini JSON 生成を開始 max_output_tokens=%s "
+        "user_message_chars=%d（参照ブロック組み立て済み）",
+        max_tok,
+        len(user_message),
+    )
     try:
         result = call_gemini_json(
             STORY_SYSTEM_PROMPT,
             user_message,
-            max_tokens=current_app.config.get(
-                "GEMINI_STORY_MAX_OUTPUT_TOKENS", 65536
-            ),
+            max_tokens=max_tok,
             log_label="story.generate",
         )
         if "chapters" not in result or not isinstance(result["chapters"], list):
@@ -525,6 +530,11 @@ LoRA 名（指定時は各シーン positive 末尾に lora:名:1 を付与）: 
 @bp.route("/save", methods=["POST"])
 def save():
     """生成結果または手入力を DB に保存。"""
+    logger.info(
+        "story.save: 一覧からの保存リクエスト受付 title_len=%d chapters_json_len=%d",
+        len((request.form.get("title") or "").strip()),
+        len((request.form.get("chapters_json") or "").strip()),
+    )
     character_id = request.form.get("character_id", type=int)
     title = request.form.get("title", "").strip()
     overview = request.form.get("overview", "").strip()
@@ -536,11 +546,16 @@ def save():
     premise = request.form.get("premise", "").strip() or None
 
     if not character_id or not title:
+        logger.info(
+            "story.save: 検証で中止（キャラまたはタイトル不足） character_id=%s",
+            character_id,
+        )
         flash("キャラクターとタイトルは必須です。", "error")
         return redirect(url_for("story.index"))
 
     err, chapters_store = _parse_chapters_form(chapters_json)
     if err:
+        logger.info("story.save: 章 JSON 検証で中止: %s", err[:200])
         flash(err, "error")
         return redirect(url_for("story.index"))
 
@@ -560,6 +575,12 @@ def save():
     )
     db.session.add(story)
     db.session.commit()
+    logger.info(
+        "story.save: DB に新規ストーリーを保存完了 id=%s character_id=%s title=%r",
+        story.id,
+        character_id,
+        (title or "")[:80],
+    )
     flash("ストーリーを保存しました。", "success")
     return redirect(url_for("story.index"))
 
@@ -616,13 +637,17 @@ LoRA 名: {character.lora_name or '（なし）'}
 {instruction}
     """.strip()
 
+    max_tok = int(current_app.config.get("GEMINI_STORY_MAX_OUTPUT_TOKENS", 65536))
+    logger.info(
+        "story.revise: Gemini 加筆修正を開始 max_output_tokens=%s user_message_chars=%d",
+        max_tok,
+        len(user_message),
+    )
     try:
         result = call_gemini_json(
             STORY_REVISE_SYSTEM_PROMPT,
             user_message,
-            max_tokens=current_app.config.get(
-                "GEMINI_STORY_MAX_OUTPUT_TOKENS", 65536
-            ),
+            max_tokens=max_tok,
             log_label="story.revise",
         )
         if "chapters" not in result or not isinstance(result["chapters"], list):
@@ -736,13 +761,17 @@ LoRA 名（指定時は各シーン positive 末尾に lora:名:1 を付与）: 
     if extra:
         basis_for_save += f"\n\n【補足】\n{extra}"
 
+    max_tok = int(current_app.config.get("GEMINI_STORY_MAX_OUTPUT_TOKENS", 65536))
+    logger.info(
+        "story.recharacterize: Gemini 全面改稿を開始 max_output_tokens=%s user_message_chars=%d",
+        max_tok,
+        len(user_message),
+    )
     try:
         result = call_gemini_json(
             STORY_RECHARACTERIZE_SYSTEM_PROMPT,
             user_message,
-            max_tokens=current_app.config.get(
-                "GEMINI_STORY_MAX_OUTPUT_TOKENS", 65536
-            ),
+            max_tokens=max_tok,
             log_label="story.recharacterize",
         )
         if "chapters" not in result or not isinstance(result["chapters"], list):
@@ -778,6 +807,12 @@ LoRA 名（指定時は各シーン positive 末尾に lora:名:1 を付与）: 
 def save_as_new(sid: int):
     """プレビュー内容を新規ストーリー行として保存。元の sid は変更しない（別キャラ改稿向け）。"""
     Story.query.get_or_404(sid)
+    logger.info(
+        "story.save_as_new: 新規として保存リクエスト source_sid=%s title_len=%d chapters_json_len=%d",
+        sid,
+        len((request.form.get("title") or "").strip()),
+        len((request.form.get("chapters_json") or "").strip()),
+    )
     character_id = request.form.get("character_id", type=int)
     title = request.form.get("title", "").strip()
     overview = request.form.get("overview", "").strip()
@@ -818,6 +853,12 @@ def save_as_new(sid: int):
     )
     db.session.add(new_story)
     db.session.commit()
+    logger.info(
+        "story.save_as_new: 新規行として保存完了 source_sid=%s new_id=%s title=%r",
+        sid,
+        new_story.id,
+        (title or "")[:80],
+    )
     flash(
         "新規ストーリーとして保存しました（元のストーリーは変更していません）。",
         "success",
@@ -829,6 +870,12 @@ def save_as_new(sid: int):
 def update(sid: int):
     """保存済みストーリーを上書き更新。"""
     story = Story.query.get_or_404(sid)
+    logger.info(
+        "story.update: 詳細ページからの上書き保存受付 sid=%s title_len=%d chapters_json_len=%d",
+        sid,
+        len((request.form.get("title") or "").strip()),
+        len((request.form.get("chapters_json") or "").strip()),
+    )
     character_id = request.form.get("character_id", type=int)
     title = request.form.get("title", "").strip()
     overview = request.form.get("overview", "").strip()
@@ -841,12 +888,18 @@ def update(sid: int):
     prompt_basis = (request.form.get("prompt_basis") or "").strip() or None
 
     if not character_id:
+        logger.info("story.update: 中止 sid=%s（キャラ ID 不正）", sid)
         flash("キャラクター ID が不正です。", "error")
         return redirect(url_for("story.detail", sid=sid))
     if not Character.query.get(character_id):
+        logger.info("story.update: 中止 sid=%s（キャラ不存在）", sid)
         flash("キャラクターが見つかりません。", "error")
         return redirect(url_for("story.detail", sid=sid))
     if character_id != story.character_id:
+        logger.info(
+            "story.update: 中止 sid=%s（プレビューキャラとストーリー紐づけキャラ不一致）",
+            sid,
+        )
         flash(
             "プレビューのキャラクターが、このストーリーに登録されているキャラと異なります。"
             "別キャラ版は「新規ストーリーとして保存」を使うと、元ストーリーを残したまま別行に保存できます。",
@@ -854,11 +907,13 @@ def update(sid: int):
         )
         return redirect(url_for("story.detail", sid=sid))
     if not title:
+        logger.info("story.update: 中止 sid=%s（タイトル空）", sid)
         flash("タイトルは必須です。", "error")
         return redirect(url_for("story.detail", sid=sid))
 
     err, chapters_store = _parse_chapters_form(chapters_json)
     if err:
+        logger.info("story.update: 章 JSON 検証で中止 sid=%s: %s", sid, err[:200])
         flash(err, "error")
         return redirect(url_for("story.detail", sid=sid))
 
@@ -872,6 +927,12 @@ def update(sid: int):
     story.prompt_basis = prompt_basis
     story.chapters_json = chapters_store
     db.session.commit()
+    logger.info(
+        "story.update: DB 上書きコミット完了 sid=%s title=%r chapters_len=%d",
+        sid,
+        (title or "")[:80],
+        len(chapters_store or ""),
+    )
     flash("ストーリーを更新しました。", "success")
     return redirect(url_for("story.detail", sid=sid))
 
@@ -927,6 +988,7 @@ def save_pixiv_post(sid: int):
     story.pixiv_post_caption = caption
     story.pixiv_post_tags = tags
     db.session.commit()
+    logger.info("story.save_pixiv_post: Pixiv 文案保存完了 sid=%s", sid)
     flash("Pixiv 投稿文案を保存しました。", "success")
     return redirect(url_for("story.detail", sid=sid))
 
@@ -955,6 +1017,12 @@ def update_chapter_prompts(sid: int):
     """シーン単位で Positive / Negative（とパターン名・任意のセリフ）を編集して保存。"""
     story = Story.query.get_or_404(sid)
     ch_no = request.form.get("ch_no", type=int)
+    logger.info(
+        "story.update_chapter_prompts: シーン別プロンプト保存 sid=%s ch_no=%s variant_raw=%r",
+        sid,
+        ch_no,
+        (request.form.get("variant_index") or "")[:20],
+    )
     if not ch_no or ch_no < 1:
         flash("シーン番号が不正です。", "error")
         return redirect(url_for("story.detail", sid=sid))
@@ -1017,6 +1085,11 @@ def update_chapter_prompts(sid: int):
 
     story.set_chapters(chapters)
     db.session.commit()
+    logger.info(
+        "story.update_chapter_prompts: DB コミット完了 sid=%s ch_no=%s",
+        sid,
+        ch_no,
+    )
     flash(
         f"シーン {ch_no} のプロンプトを保存しました（任意のセリフ・デフォルト seed を指定していればそれらも保存済み）。",
         "success",
@@ -1029,12 +1102,18 @@ def update_chapters(sid: int):
     """章 JSON のみ更新（SD で調整したプロンプトを手動で反映する用）。"""
     story = Story.query.get_or_404(sid)
     raw = (request.form.get("chapters_json") or "").strip()
+    logger.info(
+        "story.update_chapters: 章 JSON 一括保存 sid=%s raw_chars=%d",
+        sid,
+        len(raw),
+    )
     err, chapters_store = _parse_chapters_form(raw)
     if err:
         flash(err, "error")
         return redirect(url_for("story.detail", sid=sid))
     story.chapters_json = chapters_store
     db.session.commit()
+    logger.info("story.update_chapters: DB コミット完了 sid=%s", sid)
     flash("章データ（シーン・プロンプト）を更新しました。", "success")
     return redirect(url_for("story.detail", sid=sid))
 
@@ -1174,6 +1253,16 @@ def schedule_chapter_image(sid: int):
     )
     db.session.add(job)
     db.session.commit()
+    logger.info(
+        "story.schedule_chapter_image: 予約ジョブ登録完了 sid=%s job_id=%s ch_no=%s "
+        "scheduled_at_utc=%s batch=%s×n_iter=%s",
+        sid,
+        job.id,
+        ch_no,
+        scheduled_at.isoformat(),
+        batch_size,
+        n_iter,
+    )
     msg = (
         f"シーン {ch_no} の生成を {scheduled_at.strftime('%Y-%m-%d %H:%M')} UTC に予約しました"
         f"（入力は {current_app.config.get('SD_SCHEDULER_TIMEZONE') or 'Asia/Tokyo'} として解釈）。"
@@ -1372,6 +1461,11 @@ def generate_chapter_image(sid: int):
     """章のプロンプトで Web UI API 生成 → S3 original + stripped → Image 2 行。"""
     story = Story.query.get_or_404(sid)
     character = story.character or Character.query.get_or_404(story.character_id)
+    logger.info(
+        "story.generate_chapter_image: 今すぐ生成リクエスト受付 sid=%s ch_no(raw)=%s",
+        sid,
+        request.form.get("ch_no"),
+    )
     ch_no = request.form.get("ch_no", type=int)
     variant_index = _parse_variant_index_form()
     steps = request.form.get("steps", type=int) or 20
@@ -1380,6 +1474,7 @@ def generate_chapter_image(sid: int):
     seed = _parse_seed_int("seed")
 
     if not ch_no or ch_no < 1:
+        logger.info("story.generate_chapter_image: 中止 sid=%s（シーン番号不正）", sid)
         flash("シーン番号が不正です。", "error")
         return redirect(url_for("story.detail", sid=sid))
 
@@ -1389,6 +1484,7 @@ def generate_chapter_image(sid: int):
             request.form.get("n_iter", type=int),
         )
     except ValueError as e:
+        logger.info("story.generate_chapter_image: 中止 sid=%s（batch 検証）: %s", sid, e)
         flash(str(e), "error")
         _maybe_persist_generate_form(sid)
         return redirect(url_for("story.detail", sid=sid))
@@ -1407,6 +1503,7 @@ def generate_chapter_image(sid: int):
 
     base_url = (current_app.config.get("SD_WEBUI_BASE_URL") or "").strip()
     if not base_url:
+        logger.info("story.generate_chapter_image: 中止 sid=%s（SD_WEBUI_BASE_URL 未設定）", sid)
         flash(
             "SD_WEBUI_BASE_URL が未設定です。.env に Web UI のベース URL（例: http://IP:7860）を設定してください。",
             "error",
@@ -1414,10 +1511,27 @@ def generate_chapter_image(sid: int):
         _maybe_persist_generate_form(sid)
         return redirect(url_for("story.detail", sid=sid))
     if not s3_service.is_s3_configured():
+        logger.info("story.generate_chapter_image: 中止 sid=%s（S3 未設定）", sid)
         flash("S3 が未設定のためアップロードできません。", "error")
         _maybe_persist_generate_form(sid)
         return redirect(url_for("story.detail", sid=sid))
 
+    logger.info(
+        "story.generate_chapter_image: Web UI → S3 生成開始 sid=%s ch_no=%s variant_index=%s "
+        "steps=%s size=%sx%s seed=%s batch=%s n_iter=%s cfg=%s sampler=%r hr=%s",
+        sid,
+        ch_no,
+        variant_index,
+        steps,
+        width,
+        height,
+        seed,
+        batch_size,
+        n_iter,
+        cfg_scale,
+        sampler_name,
+        enable_hr,
+    )
     try:
         ch_dict = story.find_chapter_by_no(ch_no)
         preset_idx = _parse_speech_preset_index_form()
@@ -1446,14 +1560,24 @@ def generate_chapter_image(sid: int):
         )
         nimg = len(pairs)
         hr_note = "（Hi-res fix あり）" if enable_hr else ""
+        logger.info(
+            "story.generate_chapter_image: Web UI+S3 完了 sid=%s ch_no=%s 生成ペア=%s "
+            "（original+stripped で Image 行は約 %s 件）",
+            sid,
+            ch_no,
+            nimg,
+            nimg * 2,
+        )
         flash(
             f"シーン {ch_no} を Web UI で {nimg} 枚生成し、"
             f"原本+配布用で計 {nimg * 2} 件を S3 に保存しました（batch={batch_size}×繰り返し={n_iter}）{hr_note}。",
             "success",
         )
     except ValueError as e:
+        logger.info("story.generate_chapter_image: ValueError sid=%s ch_no=%s: %s", sid, ch_no, e)
         flash(str(e), "error")
     except RuntimeError as e:
+        logger.info("story.generate_chapter_image: RuntimeError sid=%s ch_no=%s: %s", sid, ch_no, e)
         flash(str(e), "error")
     except Exception:
         logger.exception("generate_chapter_image: 失敗 story_id=%s ch_no=%s", sid, ch_no)
