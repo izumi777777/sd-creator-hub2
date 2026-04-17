@@ -39,6 +39,7 @@ from app.services.seasonal_story import (
     week_of_month,
 )
 from app.services import s3_service
+from app.services.schedule_timezone import parse_scheduled_at_to_utc_naive
 from app.services.pixiv_text import (
     first_japanese_title_candidate,
     sanitize_markdown_for_pixiv,
@@ -73,19 +74,6 @@ def _redirect_after_story_image_op(sid: int):
 
 
 _MAX_PIXIV_GEMINI_RAW = 120_000
-
-
-def _parse_scheduled_at_naive(raw: str) -> datetime | None:
-    """datetime-local の値をサーバーと同じ解釈の naive datetime にする。"""
-    s = (raw or "").strip()
-    if not s:
-        return None
-    try:
-        if len(s) >= 16 and s[4] == "-" and s[7] == "-" and s[10] == "T":
-            return datetime.strptime(s[:16], "%Y-%m-%dT%H:%M")
-        return datetime.fromisoformat(s.replace("Z", ""))
-    except ValueError:
-        return None
 
 
 def _parse_seed_int(form_key: str = "seed") -> int:
@@ -1128,7 +1116,10 @@ def schedule_chapter_image(sid: int):
     )
     hr_upscaler = sanitize_hr_upscaler(request.form.get("hr_upscaler"))
 
-    scheduled_at = _parse_scheduled_at_naive(request.form.get("scheduled_at") or "")
+    scheduled_at = parse_scheduled_at_to_utc_naive(
+        request.form.get("scheduled_at") or "",
+        current_app.config.get("SD_SCHEDULER_TIMEZONE"),
+    )
     if not ch_no or ch_no < 1:
         flash("シーン番号が不正です。", "error")
         return redirect(url_for("story.detail", sid=sid))
@@ -1164,7 +1155,8 @@ def schedule_chapter_image(sid: int):
     db.session.add(job)
     db.session.commit()
     msg = (
-        f"シーン {ch_no} の生成を {scheduled_at.strftime('%Y-%m-%d %H:%M')} に予約しました。"
+        f"シーン {ch_no} の生成を {scheduled_at.strftime('%Y-%m-%d %H:%M')} UTC に予約しました"
+        f"（入力は {current_app.config.get('SD_SCHEDULER_TIMEZONE') or 'Asia/Tokyo'} として解釈）。"
     )
     if not current_app.config.get("SD_SCHEDULER_ENABLED"):
         msg += " 自動実行には .env で SD_SCHEDULER_ENABLED=1 を有効にし、ポータルを常時起動してください。"

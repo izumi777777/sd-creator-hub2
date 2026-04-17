@@ -3,15 +3,52 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+
+from flask import current_app
 
 from app import db
 from app.models.character import Character
 from app.models.scheduled_image_job import ScheduledImageJob
 from app.models.story import Story, resolve_speech_bottom_override
+from app.services.schedule_timezone import utc_now_naive
 from app.services.story_sd_generation import generate_chapter_images
 
 logger = logging.getLogger(__name__)
+
+
+def _fail_stale_running_jobs(now: datetime) -> int:
+    """
+    クラッシュ等で running のまま残ったジョブを失敗にする（重複実行を避ける）。
+    """
+    try:
+        mins = int(current_app.config.get("SD_SCHEDULER_STALE_RUNNING_MINUTES") or 180)
+    except (TypeError, ValueError):
+        mins = 180
+    mins = max(30, min(mins, 1440))
+    cutoff = now - timedelta(minutes=mins)
+    msg = (
+        f"running のまま {mins} 分以上経過したため失敗扱いにしました。"
+        " プロセス再起動・タイムアウト時など。予約し直してください。"
+    )
+    n = (
+        ScheduledImageJob.query.filter(
+            ScheduledImageJob.status == ScheduledImageJob.STATUS_RUNNING,
+            ScheduledImageJob.started_at.isnot(None),
+            ScheduledImageJob.started_at < cutoff,
+        ).update(
+            {
+                "status": ScheduledImageJob.STATUS_FAILED,
+                "error_message": msg[:8000],
+                "completed_at": now,
+            },
+            synchronize_session=False,
+        )
+    )
+    if n:
+        db.session.commit()
+        logger.warning("schedule_worker: marked %s stale running job(s) as failed", n)
+    return int(n or 0)
 
 
 def _claim_job(job: ScheduledImageJob, now: datetime) -> bool:
@@ -39,7 +76,8 @@ def run_due_jobs(*, max_per_tick: int = 3) -> int:
     Returns:
         このティックで完了または失敗にした件数。
     """
-    now = datetime.utcnow()
+    now = utc_now_naive()
+    _fail_stale_running_jobs(now)
     due = (
         ScheduledImageJob.query.filter(
             ScheduledImageJob.status == ScheduledImageJob.STATUS_PENDING,
@@ -59,14 +97,14 @@ def run_due_jobs(*, max_per_tick: int = 3) -> int:
         if not story or not character:
             job.status = ScheduledImageJob.STATUS_FAILED
             job.error_message = "ストーリーまたはキャラが見つかりません。"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = utc_now_naive()
             db.session.commit()
             done += 1
             continue
         if story.character_id != job.character_id:
             job.status = ScheduledImageJob.STATUS_FAILED
             job.error_message = "予約時のキャラとストーリーのキャラが一致しません。"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = utc_now_naive()
             db.session.commit()
             done += 1
             continue
@@ -120,7 +158,7 @@ def run_due_jobs(*, max_per_tick: int = 3) -> int:
             logger.exception("schedule_worker: job %s failed", job.id)
             job.status = ScheduledImageJob.STATUS_FAILED
             job.error_message = str(e)[:8000]
-        job.completed_at = datetime.utcnow()
+        job.completed_at = utc_now_naive()
         db.session.commit()
         done += 1
     return done

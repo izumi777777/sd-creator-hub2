@@ -522,7 +522,7 @@
           </select></label>
           <button type="submit" class="px-2 py-1 rounded-lg bg-gray-700 text-white text-xs hover:bg-gray-800">予約登録</button>
         </form>
-        <p class="text-xs text-gray-400 mt-0.5">日時はブラウザのローカル時刻で入力されます（サーバの時計とずれる場合は調整してください）。実行時に Web UI と S3 が必要です。</p>
+        <p class="text-xs text-gray-400 mt-0.5">日時はブラウザのローカル時刻で入力されます。保存時は <code class="bg-gray-100 dark:bg-slate-800 px-0.5 rounded">SD_SCHEDULER_TIMEZONE</code>（既定 Asia/Tokyo）の壁時計として解釈し、内部では UTC で期限判定します。海外サーバでは .env で <code class="bg-gray-100 dark:bg-slate-800 px-0.5 rounded">SD_SCHEDULER_TIMEZONE=UTC</code> 等に合わせてください。実行時に Web UI と S3 が必要です。</p>
       </div>
       {% endfor %}
     {% else %}
@@ -607,7 +607,7 @@
       </select></label>
       <button type="submit" class="px-2 py-1 rounded-lg bg-gray-700 text-white text-xs hover:bg-gray-800">予約登録</button>
     </form>
-    <p class="text-xs text-gray-400 mt-0.5">日時はブラウザのローカル時刻です。実行時に Web UI と S3 が必要です。</p>
+    <p class="text-xs text-gray-400 mt-0.5">日時はブラウザのローカル時刻です（保存は UTC 基準・<code class="bg-gray-100 dark:bg-slate-800 px-0.5 rounded">SD_SCHEDULER_TIMEZONE</code> 解釈）。実行時に Web UI と S3 が必要です。</p>
     {% endif %}
   </article>
   {% endfor %}

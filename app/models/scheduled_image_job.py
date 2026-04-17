@@ -44,6 +44,7 @@ class ScheduledImageJob(db.Model):
     overlay_include_speech = db.Column(db.Boolean, nullable=False, default=True)
     # NULL=章の speech。0〜9=ストーリー speech_presets_json の該当枠（空なら章にフォールバック）
     speech_preset_index = db.Column(db.Integer, nullable=True)
+    # 予約実行の期限（UTC の naive。フォームは SD_SCHEDULER_TIMEZONE 上のローカルとして解釈して保存）
     scheduled_at = db.Column(db.DateTime, nullable=False)
     status = db.Column(db.String(20), nullable=False, default=STATUS_PENDING)
     error_message = db.Column(db.Text, nullable=True)

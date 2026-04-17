@@ -132,6 +132,13 @@ class Config:
         SD_SCHEDULER_POLL_SECONDS = max(15, min(int(_poll_raw), 3600))
     except ValueError:
         SD_SCHEDULER_POLL_SECONDS = 60
+    # datetime-local（オフセットなし）をどの地域時刻として解釈し UTC に直すか（IANA）。サーバが UTC のとき必須。
+    SD_SCHEDULER_TIMEZONE = (os.environ.get("SD_SCHEDULER_TIMEZONE") or "Asia/Tokyo").strip()
+    _stale_run = os.environ.get("SD_SCHEDULER_STALE_RUNNING_MINUTES", "180")
+    try:
+        SD_SCHEDULER_STALE_RUNNING_MINUTES = max(30, min(int(_stale_run), 1440))
+    except ValueError:
+        SD_SCHEDULER_STALE_RUNNING_MINUTES = 180
 
     # --- インフラ操作コンソール（/ops）---
     OPS_CONSOLE_TOKEN = (os.environ.get("OPS_CONSOLE_TOKEN") or "").strip()
