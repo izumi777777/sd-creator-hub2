@@ -457,6 +457,71 @@ def delete_object(s3_key: str) -> None:
     logger.info("S3 削除完了: key=%r", s3_key)
 
 
+def delete_objects_batch(s3_keys: list[str]) -> tuple[int, list[str]]:
+    """
+    複数の S3 オブジェクトを 1 回の API 呼び出しで一括削除する。
+    S3 の delete_objects は最大 1000 件 / 回。
+    1000 件を超える場合は自動的に分割して送信する。
+
+    Args:
+        s3_keys: 削除するオブジェクトキーのリスト
+
+    Returns:
+        (削除成功件数, 失敗したキーのリスト)
+    """
+    keys = list(dict.fromkeys(k.strip() for k in s3_keys if k and k.strip()))
+    if not keys:
+        return 0, []
+
+    s3 = get_s3_client()
+    bucket = current_app.config["AWS_S3_BUCKET"]
+    deleted_count = 0
+    failed_keys: list[str] = []
+
+    chunk_size = 1000
+    for i in range(0, len(keys), chunk_size):
+        chunk = keys[i : i + chunk_size]
+        objects = [{"Key": k} for k in chunk]
+        start = time.perf_counter()
+        logger.info(
+            "S3 一括削除: %d 件送信中...",
+            len(chunk),
+        )
+        try:
+            resp = s3.delete_objects(
+                Bucket=bucket,
+                Delete={"Objects": objects, "Quiet": False},
+            )
+            ok = len(resp.get("Deleted") or [])
+            errors = resp.get("Errors") or []
+            deleted_count += ok
+            for e in errors:
+                failed_keys.append(e.get("Key", "?"))
+                logger.warning(
+                    "S3 一括削除 個別失敗: key=%r code=%s message=%s",
+                    e.get("Key"),
+                    e.get("Code"),
+                    e.get("Message"),
+                )
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            logger.info(
+                "S3 一括削除 完了: 成功=%d 失敗=%d | %dms",
+                ok,
+                len(errors),
+                elapsed_ms,
+            )
+        except Exception as e:
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            logger.error(
+                "S3 一括削除 エラー: %dms | %s",
+                elapsed_ms,
+                e,
+            )
+            failed_keys.extend(chunk)
+
+    return deleted_count, failed_keys
+
+
 def _batch_presign_worker(
     app: Any,
     iid: int,

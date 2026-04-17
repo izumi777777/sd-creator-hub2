@@ -421,7 +421,7 @@ _MAX_BULK_IMAGE_DELETE = 80
 
 @bp.route("/bulk-delete", methods=["POST"])
 def bulk_delete():
-    """チェックした複数 Image を S3＋DB から削除する。"""
+    """チェックした複数 Image を S3＋DB から一括削除する。"""
     raw = request.form.getlist("image_ids")
     ids: list[int] = []
     for x in raw:
@@ -434,26 +434,54 @@ def bulk_delete():
         flash("削除する画像を選択してください。", "warning")
         return _redirect_image_index_from_bulk_form()
 
-    deleted = 0
+    images = Image.query.filter(Image.id.in_(ids)).all()
+    id_to_img = {img.id: img for img in images}
+    not_found = [iid for iid in ids if iid not in id_to_img]
+
+    s3_failed_keys: list[str] = []
+    if s3_service.is_s3_configured():
+        keys_to_delete = list(
+            dict.fromkeys(
+                img.s3_key.strip()
+                for img in images
+                if img.s3_key and img.s3_key.strip()
+            )
+        )
+        if keys_to_delete:
+            _, s3_failed_keys = s3_service.delete_objects_batch(keys_to_delete)
+
+    s3_failed_set = set(s3_failed_keys)
+    db_delete_ids = [
+        img.id
+        for img in images
+        if not (img.s3_key and img.s3_key.strip() in s3_failed_set)
+    ]
+
+    if db_delete_ids:
+        Image.query.filter(Image.id.in_(db_delete_ids)).delete(synchronize_session=False)
+        db.session.commit()
+
+    deleted = len(db_delete_ids)
     failed: list[str] = []
-    for iid in ids:
-        img = Image.query.get(iid)
-        if not img:
-            failed.append(f"ID{iid}: 見つかりません")
-            continue
-        ok, err = delete_portal_image(img)
-        if ok:
-            deleted += 1
-        else:
-            failed.append(f"ID{iid}: {err}")
+    for iid in not_found:
+        failed.append(f"ID{iid}: 見つかりません")
+    for key in s3_failed_keys:
+        failed.append(f"S3削除失敗: {key}")
 
     if deleted:
-        flash(f"{deleted} 件の画像を削除しました（S3 オブジェクトも削除済みのものがあります）。", "success")
+        flash(
+            f"{deleted} 件の画像を削除しました"
+            f"（S3 オブジェクトも削除済みのものがあります）。",
+            "success",
+        )
     if failed:
         tail = "; ".join(failed[:12])
         if len(failed) > 12:
             tail += " …"
-        flash(f"削除できなかった項目: {tail}", "error" if deleted == 0 else "warning")
+        flash(
+            f"削除できなかった項目: {tail}",
+            "error" if deleted == 0 else "warning",
+        )
     return _redirect_image_index_from_bulk_form()
 
 
@@ -461,12 +489,21 @@ def bulk_delete():
 def delete(iid: int):
     """DB から画像レコードを削除し、S3 キーがあればオブジェクトも削除する。"""
     img = Image.query.get_or_404(iid)
+
+    redirect_kw: dict[str, Any] = {}
+    if img.character_id:
+        redirect_kw["character_id"] = img.character_id
+    if img.story_id:
+        redirect_kw["story_id"] = img.story_id
+    if img.storage_folder:
+        redirect_kw["storage_folder"] = img.storage_folder
+
     ok, err = delete_portal_image(img)
     if not ok:
         flash(
             f"S3 の削除に失敗しました（DB レコードは削除しませんでした）: {err}",
             "error",
         )
-        return redirect(url_for("image.index"))
+        return redirect(url_for("image.index", **redirect_kw))
     flash("画像を削除しました（S3 のオブジェクトも削除済みです）。", "success")
-    return redirect(url_for("image.index"))
+    return redirect(url_for("image.index", **redirect_kw))

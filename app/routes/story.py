@@ -1438,8 +1438,6 @@ _MAX_BULK_STORY_IMAGE_DELETE = 80
 @bp.route("/<int:sid>/images/bulk-delete", methods=["POST"])
 def bulk_delete_story_images(sid: int):
     """ストーリーに紐づく画像を複数選択して一括削除。"""
-    from app.routes.image import delete_portal_image
-
     Story.query.get_or_404(sid)
     raw = request.form.getlist("image_ids")
     ids: list[int] = []
@@ -1453,32 +1451,57 @@ def bulk_delete_story_images(sid: int):
         flash("削除する画像を選択してください。", "warning")
         return _redirect_after_story_image_op(sid)
 
-    deleted = 0
+    images = Image.query.filter(
+        Image.id.in_(ids),
+        Image.story_id == sid,
+    ).all()
+    found_ids = {img.id for img in images}
+    wrong_story = [iid for iid in ids if iid not in found_ids]
+
+    s3_failed_keys: list[str] = []
+    if s3_service.is_s3_configured():
+        keys_to_delete = list(
+            dict.fromkeys(
+                img.s3_key.strip()
+                for img in images
+                if img.s3_key and img.s3_key.strip()
+            )
+        )
+        if keys_to_delete:
+            _, s3_failed_keys = s3_service.delete_objects_batch(keys_to_delete)
+
+    s3_failed_set = set(s3_failed_keys)
+    db_delete_ids = [
+        img.id
+        for img in images
+        if not (img.s3_key and img.s3_key.strip() in s3_failed_set)
+    ]
+
+    if db_delete_ids:
+        Image.query.filter(Image.id.in_(db_delete_ids)).delete(synchronize_session=False)
+        db.session.commit()
+
+    deleted = len(db_delete_ids)
     failed: list[str] = []
-    for iid in ids:
-        img = Image.query.get(iid)
-        if not img:
-            failed.append(f"ID{iid}: 見つかりません")
-            continue
-        if img.story_id != sid:
-            failed.append(f"ID{iid}: このストーリーに属しません")
-            continue
-        ok, err = delete_portal_image(img)
-        if ok:
-            deleted += 1
-        else:
-            failed.append(f"ID{iid}: {err}")
+    for iid in wrong_story:
+        failed.append(f"ID{iid}: このストーリーに属しません")
+    for key in s3_failed_keys:
+        failed.append(f"S3削除失敗: {key}")
 
     if deleted:
         flash(
-            f"{deleted} 件の画像を削除しました（S3 オブジェクトも削除済みのものがあります）。",
+            f"{deleted} 件の画像を削除しました"
+            f"（S3 オブジェクトも削除済みのものがあります）。",
             "success",
         )
     if failed:
         tail = "; ".join(failed[:12])
         if len(failed) > 12:
             tail += " …"
-        flash(f"削除できなかった項目: {tail}", "error" if deleted == 0 else "warning")
+        flash(
+            f"削除できなかった項目: {tail}",
+            "error" if deleted == 0 else "warning",
+        )
     return _redirect_after_story_image_op(sid)
 
 
