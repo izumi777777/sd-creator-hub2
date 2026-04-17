@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from typing import Any
 
 from flask import current_app
@@ -112,6 +113,27 @@ def _short_err(exc: BaseException, limit: int = 300) -> str:
     return s if len(s) <= limit else s[: limit - 3] + "..."
 
 
+def _usage_metadata_summary(response: Any) -> str:
+    """generate_content のレスポンスから利用状況の要約（無ければ '-'）。"""
+    um = getattr(response, "usage_metadata", None)
+    if um is None:
+        return "-"
+    try:
+        pt = getattr(um, "prompt_token_count", None)
+        ct = getattr(um, "candidates_token_count", None)
+        tt = getattr(um, "total_token_count", None)
+        bits: list[str] = []
+        if pt is not None:
+            bits.append(f"prompt={pt}")
+        if ct is not None:
+            bits.append(f"candidates={ct}")
+        if tt is not None:
+            bits.append(f"total={tt}")
+        return " ".join(bits) if bits else repr(um)[:120]
+    except Exception:
+        return repr(um)[:120]
+
+
 def _gemini_model_names() -> list[str]:
     configured = (current_app.config.get("GEMINI_MODEL") or "").strip()
     # gemini-2.0-flash-001 は新規 API キーでは 404 になりやすいためフォールバックから除外。
@@ -158,7 +180,8 @@ def call_gemini_text(
 
     model_names = _gemini_model_names()
     logger.info(
-        "%s: Gemini テキスト開始 max_output_tokens=%s 試行順=%s user_chars=%d system_chars=%d",
+        "%s: Gemini プレーンテキスト処理シーケンス開始 max_output_tokens=%s 試行順=%s "
+        "user_chars=%d system_chars=%d",
         log_label,
         max_tokens,
         model_names,
@@ -169,16 +192,31 @@ def call_gemini_text(
     client = _get_gemini_client(api_key)
     errors: list[str] = []
     for model_name in model_names:
-        logger.info("%s: 試行 model=%s (plain)", log_label, model_name)
+        logger.info(
+            "%s: Gemini 処理中（プレーンテキスト）model=%s → Google API generate_content 送信",
+            log_label,
+            model_name,
+        )
         try:
             cfg = types.GenerateContentConfig(
                 system_instruction=system,
                 max_output_tokens=max_tokens,
             )
+            t0 = time.perf_counter()
             response = client.models.generate_content(
                 model=model_name,
                 contents=user_message,
                 config=cfg,
+            )
+            wall_ms = (time.perf_counter() - t0) * 1000
+            finish_s = _response_finish_reason_str(response)
+            logger.info(
+                "%s: Gemini API 応答受信 model=%s wall_ms=%.0f finish_reason=%r usage=%s",
+                log_label,
+                model_name,
+                wall_ms,
+                finish_s,
+                _usage_metadata_summary(response),
             )
             text = _extract_response_text(response)
         except Exception as e:
@@ -193,7 +231,7 @@ def call_gemini_text(
 
         if text and text.strip():
             logger.info(
-                "%s: 成功 model=%s 応答_chars≈%d",
+                "%s: 成功 model=%s 応答_chars≈%d（抽出後）",
                 log_label,
                 model_name,
                 len(text),
@@ -248,7 +286,7 @@ def call_gemini_chat(
         for p in (getattr(c, "parts", None) or [])
     )
     logger.info(
-        "%s: Gemini チャット開始 turns=%d history_chars≈%s max_output_tokens=%s 試行順=%s",
+        "%s: Gemini チャット処理シーケンス開始 turns=%d history_chars≈%s max_output_tokens=%s 試行順=%s",
         log_label,
         len(contents),
         hist_chars,
@@ -259,16 +297,31 @@ def call_gemini_chat(
     client = _get_gemini_client(api_key)
     errors: list[str] = []
     for model_name in model_names:
-        logger.info("%s: 試行 model=%s (chat)", log_label, model_name)
+        logger.info(
+            "%s: Gemini 処理中（マルチターン）model=%s → Google API generate_content 送信",
+            log_label,
+            model_name,
+        )
         try:
             cfg = types.GenerateContentConfig(
                 system_instruction=system,
                 max_output_tokens=max_tokens,
             )
+            t0 = time.perf_counter()
             response = client.models.generate_content(
                 model=model_name,
                 contents=contents,
                 config=cfg,
+            )
+            wall_ms = (time.perf_counter() - t0) * 1000
+            finish_s = _response_finish_reason_str(response)
+            logger.info(
+                "%s: Gemini API 応答受信 model=%s wall_ms=%.0f finish_reason=%r usage=%s",
+                log_label,
+                model_name,
+                wall_ms,
+                finish_s,
+                _usage_metadata_summary(response),
             )
             text = _extract_response_text(response)
         except Exception as e:
@@ -283,7 +336,7 @@ def call_gemini_chat(
 
         if text and text.strip():
             logger.info(
-                "%s: 成功 model=%s 応答_chars≈%d",
+                "%s: 成功 model=%s 応答_chars≈%d（抽出後）",
                 log_label,
                 model_name,
                 len(text),
@@ -347,7 +400,8 @@ def call_gemini_json(
     model_names = _gemini_model_names()
 
     logger.info(
-        "%s: Gemini 開始 max_output_tokens=%s 試行順=%s user_chars=%d system_chars=%d",
+        "%s: Gemini JSON 処理シーケンス開始 max_output_tokens=%s 試行順=%s "
+        "user_chars=%d system_chars=%d（モデル×json/plain の順で試行）",
         log_label,
         max_tokens,
         model_names,
@@ -360,7 +414,12 @@ def call_gemini_json(
     for model_name in model_names:
         for use_json in (True, False):
             label = "json" if use_json else "plain"
-            logger.info("%s: 試行 model=%s mode=%s", log_label, model_name, label)
+            logger.info(
+                "%s: Gemini 処理中（JSON モード試行）model=%s mode=%s → Google API generate_content 送信",
+                log_label,
+                model_name,
+                label,
+            )
             try:
                 kwargs: dict[str, Any] = {
                     "system_instruction": system,
@@ -369,12 +428,23 @@ def call_gemini_json(
                 if use_json:
                     kwargs["response_mime_type"] = "application/json"
                 cfg = types.GenerateContentConfig(**kwargs)
+                t0 = time.perf_counter()
                 response = client.models.generate_content(
                     model=model_name,
                     contents=user_message,
                     config=cfg,
                 )
+                wall_ms = (time.perf_counter() - t0) * 1000
                 finish_s = _response_finish_reason_str(response)
+                logger.info(
+                    "%s: Gemini API 応答受信 model=%s mode=%s wall_ms=%.0f finish_reason=%r usage=%s",
+                    log_label,
+                    model_name,
+                    label,
+                    wall_ms,
+                    finish_s,
+                    _usage_metadata_summary(response),
+                )
                 text = _extract_response_text(response)
             except Exception as e:
                 err_line = f"{model_name} ({label}): {e}"
@@ -418,7 +488,7 @@ def call_gemini_json(
             if isinstance(parsed, dict):
                 keys = list(parsed.keys())
                 logger.info(
-                    "%s: 成功 model=%s mode=%s top_level_keys=%s text_chars≈%d",
+                    "%s: 成功（JSON オブジェクト確定）model=%s mode=%s keys=%s raw_chars=%d",
                     log_label,
                     model_name,
                     label,
