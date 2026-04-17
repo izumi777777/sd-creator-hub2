@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}ストーリー — Creator Portal{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-2">ストーリー生成</h1>
+<p class="text-gray-600 text-sm mb-6">
+  あらすじだけでも、<strong>これまで作ったプロンプト（ライブラリ／手入力）をベース</strong>にした依頼でも、
+  章立てと SD 用プロンプトを Gemini で生成できます（保存は別フォーム）。
+</p>
+
+{% if not characters %}
+<div class="bg-amber-50 border border-amber-100 text-amber-900 text-sm rounded-lg p-4 mb-6">
+  先に <a href="{{ url_for('character.new') }}" class="underline font-medium">キャラクター</a> を登録してください。
+</div>
+{% endif %}
+
+<div class="grid lg:grid-cols-2 gap-8">
+  <section class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+    <h2 class="font-semibold mb-4">生成フォーム</h2>
+    <form
+      hx-post="{{ url_for('story.generate') }}"
+      hx-target="#story-result"
+      hx-swap="innerHTML"
+      hx-indicator="#story-loading"
+      class="space-y-4"
+    >
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">キャラクター *</label>
+        <select name="character_id" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" {% if not characters %}disabled{% endif %}>
+          <option value="">選択</option>
+          {% for c in characters %}
+          <option value="{{ c.id }}">{{ c.emoji }} {{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">あらすじ・依頼内容（任意）</label>
+        <textarea name="premise" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="物語の流れ。プロンプト中心で作る場合は短い指示や空欄でも可（下の Positive／Negative／ライブラリのいずれかと合わせて最低1つは入力）"></textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">手入力のベース・Positive（任意）</label>
+        <textarea name="base_prompt_free" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono text-xs" placeholder="共通の Positive タグ、画風・固定要素の方針など"></textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">手入力のベース・Negative（任意）</label>
+        <textarea name="base_negative_free" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono text-xs" placeholder="全章共通の Negative（例: lowres, bad hands, 避けたいタグ）。ライブラリのネガに足す形で各章の neg に反映させます"></textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">プロンプトライブラリから選択（任意・Ctrl で複数）</label>
+        <p class="text-xs text-gray-500 mb-1">先にキャラを選ぶと、そのキャラのエントリだけ表示されます。</p>
+        <select name="prompt_ids" id="story-prompt-library" multiple size="6" class="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm font-mono text-xs">
+          {% for p in library_prompts %}
+          <option value="{{ p.id }}" data-character-id="{{ p.character_id }}">
+            [{{ p.character.name if p.character else '?' }}] {{ p.situation or '無題' }} — {{ (p.positive or '')[:60] }}{% if p.positive and p.positive|length > 60 %}…{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div>
+          <p class="text-sm font-medium text-gray-700 mb-2">ジャンル</p>
+          <div class="space-y-1 text-sm">
+            <label class="flex items-center gap-2"><input type="checkbox" name="genres" value="ファンタジー"> ファンタジー</label>
+            <label class="flex items-center gap-2"><input type="checkbox" name="genres" value="SF"> SF</label>
+            <label class="flex items-center gap-2"><input type="checkbox" name="genres" value="日常"> 日常</label>
+            <label class="flex items-center gap-2"><input type="checkbox" name="genres" value="ホラー"> ホラー</label>
+          </div>
+        </div>
+        <div>
+          <p class="text-sm font-medium text-gray-700 mb-2">トーン</p>
+          <div class="space-y-1 text-sm">
+            <label class="flex items-center gap-2"><input type="checkbox" name="tones" value="ドラマチック"> ドラマチック</label>
+            <label class="flex items-center gap-2"><input type="checkbox" name="tones" value="コメディ"> コメディ</label>
+            <label class="flex items-center gap-2"><input type="checkbox" name="tones" value="シリアス"> シリアス</label>
+            <label class="flex items-center gap-2"><input type="checkbox" name="tones" value="ロマンス"> ロマンス</label>
+          </div>
+        </div>
+      </div>
+
+      <details class="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 text-sm">
+        <summary class="font-medium text-emerald-900 cursor-pointer">季節・月間テンプレ（任意・4週サイクル）</summary>
+        <p class="text-xs text-gray-600 mt-2 mb-3">
+          毎月「第1週＝イベント／第2週＝お出かけ私服／第3週＝インドア／第4週＝IF・ファンタジー」に、12ヶ月分のシチュ早見を当てはめたガイドを Gemini に渡します。
+          有効にすると<strong>衣装・背景・イベント</strong>がその枠に寄ります（ベースプロンプトと矛盾する場合はベース優先）。
+        </p>
+        <label class="flex items-center gap-2 font-medium text-gray-800 mb-3">
+          <input type="checkbox" name="seasonal_enable" value="1" class="rounded border-gray-300">
+          季節テンプレを生成に使う
+        </label>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">月</label>
+            <select name="season_month" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
+              <option value="auto" selected>自動（今日の月＝{{ default_season_month }}月）</option>
+              {% for m in [1,2,3,4,5,6,7,8,9,10,11,12] %}
+              <option value="{{ m }}">{{ m }}月</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">週（月内）</label>
+            <select name="season_week" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
+              <option value="auto" selected>自動（今日＝第{{ default_season_week }}週）</option>
+              <option value="1">第1週・イベント／華やか</option>
+              <option value="2">第2週・お出かけ・ファッション</option>
+              <option value="3">第3週・インドア・リラックス</option>
+              <option value="4">第4週・IF・ファンタジー</option>
+            </select>
+          </div>
+        </div>
+        <div class="mt-3">
+          <label class="block text-xs font-medium text-gray-700 mb-1">キャラローテ・主役メモ（任意）</label>
+          <textarea name="seasonal_rotation_note" rows="2" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs" placeholder="例：今月の主役は◯◯・△△。第1週は◯◯、第2週は△△…（案A属性グループ／案B月間主役など）"></textarea>
+        </div>
+      </details>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">章の数</label>
+        <input type="number" name="num_chapters" min="1" max="20" value="5" class="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      </div>
+      <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50" {% if not characters %}disabled{% endif %}>
+        生成する
+      </button>
+      <span id="story-loading" class="htmx-indicator text-sm text-gray-500 ml-2">生成中…</span>
+    </form>
+  </section>
+
+  <section class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm min-h-[200px]">
+    <h2 class="font-semibold mb-4">生成結果</h2>
+    <div id="story-result" class="text-sm text-gray-500">
+      左のフォームから実行するとここに表示されます。
+    </div>
+  </section>
+</div>
+
+<section class="mt-10">
+  <h2 class="text-lg font-semibold mb-3">保存済みストーリー</h2>
+  {% if stories %}
+  <ul class="space-y-4">
+    {% for s in stories %}
+    <li class="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+      <div class="flex flex-wrap items-center gap-2 text-sm px-4 py-3 border-b border-gray-100">
+        <a href="{{ url_for('story.detail', sid=s.id) }}" class="text-indigo-600 font-medium hover:underline">{{ s.title or '（無題）' }}</a>
+        <span class="text-gray-400">/</span>
+        <span>{{ s.character.name if s.character else '' }}</span>
+        <span class="text-gray-400 text-xs ml-auto">{{ s.created_at.strftime('%Y-%m-%d') if s.created_at else '' }}</span>
+        <form method="post" action="{{ url_for('story.delete', sid=s.id) }}" class="inline" onsubmit="return confirm('削除しますか？');">
+          <button type="submit" class="text-red-600 text-xs hover:underline">削除</button>
+        </form>
+      </div>
+      {% if images_by_story.get(s.id) %}
+      <div class="px-4 py-3 bg-gray-50/80">
+        {% with gallery_story=s, gallery_images=images_by_story.get(s.id), gallery_redirect='index' %}
+        {% include 'story/_images_split_gallery.html' %}
+        {% endwith %}
+      </div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% include 'story/_images_split_gallery_scripts.html' %}
+  {% else %}
+  <p class="text-gray-500 text-sm">まだありません。</p>
+  {% endif %}
+</section>
+
+<style>
+  .htmx-indicator { display: none; }
+  .htmx-request .htmx-indicator { display: inline; }
+  .htmx-request.htmx-indicator { display: inline; }
+</style>
+<script>
+(function () {
+  var charSel = document.querySelector('form[hx-post] select[name="character_id"]');
+  var lib = document.getElementById('story-prompt-library');
+  if (!charSel || !lib) return;
+  function syncLibraryOptions() {
+    var cid = charSel.value;
+    var opts = lib.querySelectorAll('option');
+    opts.forEach(function (opt) {
+      if (!cid) {
+        opt.hidden = false;
+        return;
+      }
+      opt.hidden = opt.getAttribute('data-character-id') !== cid;
+    });
+    if (cid) {
+      Array.prototype.forEach.call(lib.selectedOptions, function (o) {
+        if (o.hidden) o.selected = false;
+      });
+    }
+  }
+  charSel.addEventListener('change', syncLibraryOptions);
+  syncLibraryOptions();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ja" class="{% if ui_theme == 'dark' %}dark{% endif %} h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Creator Portal{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+  </script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    /* hx-indicator 参照先はリクエスト中のみ htmx-request が付く（既定スタイル無しだと常時見えてしまう） */
+    .htmx-indicator {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.2s ease, visibility 0.2s;
+    }
+    .htmx-indicator.htmx-request {
+      opacity: 1;
+      visibility: visible;
+    }
+    /* ダーク時: 各ページの Tailwind ユーティリティを一括で寄せる（CDN かつ dark: 未付与の箇所向け） */
+    html.dark body {
+      background-color: #020617;
+      color: #e2e8f0;
+    }
+    html.dark .bg-white { background-color: rgb(30 41 59) !important; }
+    html.dark .bg-white\/95 { background-color: rgba(30, 41, 59, 0.95) !important; }
+    html.dark .bg-gray-50 { background-color: rgb(15 23 42) !important; }
+    html.dark .bg-gray-50\/80 { background-color: rgba(15, 23, 42, 0.85) !important; }
+    html.dark .bg-gray-100 { background-color: rgb(51 65 85) !important; }
+    html.dark .bg-slate-50\/80 { background-color: rgba(30, 41, 59, 0.85) !important; }
+    html.dark .border-gray-100 { border-color: rgb(51 65 85) !important; }
+    html.dark .border-gray-200 { border-color: rgb(71 85 105) !important; }
+    html.dark .border-slate-200 { border-color: rgb(71 85 105) !important; }
+    html.dark .border-gray-300 { border-color: rgb(100 116 139) !important; }
+    html.dark .text-gray-900 { color: rgb(241 245 249) !important; }
+    html.dark .text-gray-800 { color: rgb(226 232 240) !important; }
+    html.dark .text-gray-700 { color: rgb(203 213 225) !important; }
+    html.dark .text-gray-600 { color: rgb(148 163 184) !important; }
+    html.dark .text-gray-500 { color: rgb(100 116 139) !important; }
+    html.dark .text-gray-400 { color: rgb(148 163 184) !important; }
+    html.dark .shadow-sm { box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.35) !important; }
+    html.dark .shadow-xl { box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.45), 0 8px 10px -6px rgb(0 0 0 / 0.35) !important; }
+    html.dark input:not([type="checkbox"]):not([type="radio"]),
+    html.dark select,
+    html.dark textarea {
+      background-color: rgb(30 41 59) !important;
+      color: rgb(226 232 240) !important;
+      border-color: rgb(71 85 105) !important;
+    }
+    html.dark pre { background-color: rgb(30 41 59) !important; color: rgb(226 232 240) !important; border-color: rgb(71 85 105) !important; }
+    html.dark .bg-amber-50 { background-color: rgba(120, 53, 15, 0.35) !important; }
+    html.dark .bg-amber-50\/80 { background-color: rgba(120, 53, 15, 0.45) !important; }
+    html.dark .bg-amber-50\/60 { background-color: rgba(120, 53, 15, 0.35) !important; }
+    html.dark .border-amber-100, html.dark .border-amber-200 { border-color: rgb(146 64 14) !important; }
+    html.dark .text-amber-800, html.dark .text-amber-900, html.dark .text-amber-950 { color: rgb(254 243 199) !important; }
+    html.dark .bg-red-50 { background-color: rgba(127, 29, 29, 0.35) !important; }
+    html.dark .border-red-100 { border-color: rgb(185 28 28) !important; }
+    html.dark .text-red-700, html.dark .text-red-800, html.dark .text-red-900 { color: rgb(254 202 202) !important; }
+    html.dark .bg-green-50 { background-color: rgba(20, 83, 45, 0.35) !important; }
+    html.dark .border-green-100 { border-color: rgb(22 101 52) !important; }
+    html.dark .text-green-800 { color: rgb(187 247 208) !important; }
+    html.dark .bg-blue-50 { background-color: rgba(30, 58, 138, 0.35) !important; }
+    html.dark .border-blue-100 { border-color: rgb(37 99 235) !important; }
+    html.dark .text-blue-800 { color: rgb(191 219 254) !important; }
+    html.dark .bg-indigo-50, html.dark .bg-indigo-50\/80, html.dark .bg-indigo-50\/90 { background-color: rgba(49, 46, 129, 0.45) !important; }
+    html.dark .border-indigo-100 { border-color: rgb(67 56 202) !important; }
+    html.dark .text-indigo-800, html.dark .text-indigo-900 { color: rgb(199 210 254) !important; }
+    html.dark .text-indigo-600 { color: rgb(165 180 252) !important; }
+    html.dark .hover\:text-indigo-800:hover { color: rgb(199 210 254) !important; }
+    html.dark .bg-teal-50\/80 { background-color: rgba(17, 94, 89, 0.4) !important; }
+    html.dark .border-teal-100 { border-color: rgb(15 118 110) !important; }
+    html.dark .text-teal-800 { color: rgb(153 246 228) !important; }
+    html.dark .bg-violet-50, html.dark .bg-violet-50\/80 { background-color: rgba(76, 29, 149, 0.4) !important; }
+    html.dark .border-violet-100 { border-color: rgb(91 33 182) !important; }
+    html.dark .text-violet-800, html.dark .text-violet-900 { color: rgb(221 214 254) !important; }
+    html.dark .bg-pink-100 { background-color: rgba(131, 24, 67, 0.35) !important; }
+    html.dark .border-pink-100 { border-color: rgb(157 23 77) !important; }
+    html.dark .bg-emerald-50\/80 { background-color: rgba(6, 78, 59, 0.4) !important; }
+    html.dark .border-emerald-100 { border-color: rgb(4 120 87) !important; }
+    html.dark .bg-slate-900\/50 { background-color: rgba(2, 6, 23, 0.75) !important; }
+    html.dark .bg-gray-900\/50 { background-color: rgba(2, 6, 23, 0.75) !important; }
+    html.dark code.bg-gray-100, html.dark code.bg-amber-100, html.dark code.bg-amber-100\/80 {
+      background-color: rgb(51 65 85) !important;
+      color: rgb(226 232 240) !important;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 min-h-screen pb-14 transition-colors duration-150">
+
+  <nav class="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 px-4 sm:px-6 py-3 flex flex-wrap items-center gap-3 sm:gap-5">
+    <span class="font-semibold text-sm w-full sm:w-auto text-gray-900 dark:text-slate-100">Creator Portal</span>
+    {% set nav_items = [
+      ('dashboard.index', 'ダッシュボード'),
+      ('flow.index', '制作フロー'),
+      ('story.index', 'ストーリー'),
+      ('text_gen.index', 'テキスト生成'),
+      ('image.index', '画像'),
+      ('metadata_strip.index', 'メタデータ削除'),
+      ('export.index', 'PDF/ZIP'),
+      ('character.index', 'キャラ'),
+      ('work.index', '作品'),
+      ('prompt.index', 'プロンプト'),
+      ('sales.index', '売上・経費'),
+      ('documents.index', '書類'),
+    ] %}
+    <div class="flex flex-wrap gap-3 sm:gap-5">
+      {% for endpoint, label in nav_items %}
+      {% set ns = endpoint.split('.')[0] %}
+      <a href="{{ url_for(endpoint) }}"
+         class="text-sm pb-0.5 border-b-2 transition-colors
+         {% if request.endpoint and request.endpoint.startswith(ns + '.') %}text-gray-900 dark:text-slate-100 font-medium border-gray-900 dark:border-slate-100{% else %}text-gray-500 dark:text-slate-400 border-transparent hover:text-gray-900 dark:hover:text-slate-100{% endif %}">
+        {{ label }}
+      </a>
+      {% endfor %}
+      {% if ops_console_nav_visible %}
+      <a href="{{ url_for('ops.dashboard') }}" target="_blank" rel="noopener noreferrer"
+         class="text-sm pb-0.5 border-b-2 transition-colors
+         {% if request.endpoint and request.endpoint.startswith('ops.') %}text-gray-900 dark:text-slate-100 font-medium border-gray-900 dark:border-slate-100{% else %}text-amber-700 dark:text-amber-400 border-transparent hover:text-amber-900 dark:hover:text-amber-300{% endif %}"
+         title="別タブでインフラコンソールを開きます（OPS_CONSOLE_TOKEN 未設定時は設定案内が表示されます）">
+        インフラ
+      </a>
+      {% endif %}
+    </div>
+    <div class="flex items-center gap-1.5 w-full sm:w-auto sm:ml-auto justify-end">
+      <span class="text-xs text-gray-500 dark:text-slate-400 hidden sm:inline">画面</span>
+      <form method="post" action="{{ url_for('dashboard.set_ui_theme') }}" class="inline m-0">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <input type="hidden" name="theme" value="light">
+        <button type="submit" class="px-2 py-1 rounded-md text-xs font-medium border transition-colors {% if ui_theme == 'light' %}bg-indigo-600 border-indigo-600 text-white{% else %}bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700{% endif %}">ライト</button>
+      </form>
+      <form method="post" action="{{ url_for('dashboard.set_ui_theme') }}" class="inline m-0">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <input type="hidden" name="theme" value="dark">
+        <button type="submit" class="px-2 py-1 rounded-md text-xs font-medium border transition-colors {% if ui_theme == 'dark' %}bg-indigo-600 border-indigo-600 text-white{% else %}bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700{% endif %}">ダーク</button>
+      </form>
+    </div>
+  </nav>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 mt-4">
+        {% for category, message in messages %}
+          <div class="px-4 py-3 rounded-lg text-sm mb-2
+            {% if category == 'success' %}bg-green-50 dark:bg-emerald-950/50 text-green-800 dark:text-emerald-200 border border-green-100 dark:border-emerald-800
+            {% elif category == 'error' %}bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-200 border border-red-100 dark:border-red-900
+            {% elif category == 'warning' %}bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border border-amber-100 dark:border-amber-800
+            {% else %}bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-200 border border-blue-100 dark:border-blue-900{% endif %}">
+            {{ message }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <main class="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% include 'partials/advisor_dock.html' %}
+
+  <script>
+    /* htmx は既定で 4xx/5xx の本文をターゲットに差し替えないため、エラーも表示できるようにする */
+    document.body.addEventListener('htmx:beforeSwap', function (evt) {
+      if (evt.detail.xhr.status >= 400) {
+        evt.detail.shouldSwap = true;
+      }
+    });
+    document.body.addEventListener('htmx:afterSwap', function (evt) {
+      var t = evt.detail.target;
+      if (t && (t.id === 'story-revise-result' || t.id === 'story-result')) {
+        t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+    function copyText(elId) {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      const tag = (el.tagName || '').toUpperCase();
+      const text = (tag === 'TEXTAREA' || tag === 'INPUT') ? (el.value || '') : (el.innerText || '');
+      navigator.clipboard.writeText(text).then(function () {
+        alert('コピーしました');
+      }).catch(function () {
+        alert('コピーに失敗しました');
+      });
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

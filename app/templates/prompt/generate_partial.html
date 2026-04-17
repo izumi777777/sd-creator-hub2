@@ -1,0 +1,23 @@
+{# result: positive, negative, situation_short — character, situation #}
+<div class="space-y-3 border border-gray-200 rounded-lg p-3 bg-gray-50">
+  <p class="text-xs text-gray-500">ラベル案: <span class="font-medium text-gray-800">{{ result.situation_short }}</span></p>
+  <div>
+    <p class="text-xs font-medium text-gray-600">Positive</p>
+    <pre id="gpt-pos" class="text-xs bg-white border rounded p-2 mt-1 overflow-x-auto">{{ result.positive }}</pre>
+    <button type="button" onclick="copyText('gpt-pos')" class="text-xs text-indigo-600 hover:underline mt-1">コピー</button>
+  </div>
+  <div>
+    <p class="text-xs font-medium text-gray-600">Negative</p>
+    <pre id="gpt-neg" class="text-xs bg-white border rounded p-2 mt-1 overflow-x-auto">{{ result.negative }}</pre>
+    <button type="button" onclick="copyText('gpt-neg')" class="text-xs text-indigo-600 hover:underline mt-1">コピー</button>
+  </div>
+  <form method="post" action="{{ url_for('prompt.save_generated') }}" class="pt-2 border-t border-gray-200 space-y-2">
+    <input type="hidden" name="character_id" value="{{ character.id }}">
+    <textarea name="situation" class="hidden" aria-hidden="true">{{ result.situation_short or situation }}</textarea>
+    <textarea name="positive" class="hidden" aria-hidden="true">{{ result.positive }}</textarea>
+    <textarea name="negative" class="hidden" aria-hidden="true">{{ result.negative }}</textarea>
+    <textarea name="model" class="hidden" aria-hidden="true">{{ character.sd_model or '' }}</textarea>
+    <textarea name="notes" class="hidden" aria-hidden="true">AI生成: {{ situation }}</textarea>
+    <button type="submit" class="w-full px-3 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700">ライブラリに保存</button>
+  </form>
+</div>

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{% if prompt %}編集{% else %}新規{% endif %} — プロンプト{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">{% if prompt %}プロンプト編集{% else %}プロンプト新規（手動）{% endif %}</h1>
+
+<form method="post" class="max-w-2xl space-y-4 bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+  <div>
+    <label class="block text-sm font-medium text-gray-700 mb-1">キャラクター *</label>
+    <select name="character_id" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      {% for c in characters %}
+      <option value="{{ c.id }}" {% if prompt and prompt.character_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-sm font-medium text-gray-700 mb-1">シチュエーション（短いラベル）</label>
+    <input name="situation" value="{{ prompt.situation if prompt and prompt.situation else '' }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+  </div>
+  <div>
+    <label class="block text-sm font-medium text-gray-700 mb-1">Positive</label>
+    <textarea name="positive" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono text-xs">{{ prompt.positive if prompt and prompt.positive else '' }}</textarea>
+  </div>
+  <div>
+    <label class="block text-sm font-medium text-gray-700 mb-1">Negative</label>
+    <textarea name="negative" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono text-xs">{{ prompt.negative if prompt and prompt.negative else '' }}</textarea>
+  </div>
+  <div>
+    <label class="block text-sm font-medium text-gray-700 mb-1">使用モデル（メモ）</label>
+    <input name="model" value="{{ prompt.model if prompt and prompt.model else '' }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+  </div>
+  <div>
+    <label class="block text-sm font-medium text-gray-700 mb-1">ストーリー章 ID（任意）</label>
+    <input name="story_chapter_id" type="number" value="{{ prompt.story_chapter_id if prompt and prompt.story_chapter_id else '' }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+  </div>
+  <div>
+    <label class="block text-sm font-medium text-gray-700 mb-1">制作メモ</label>
+    <textarea name="notes" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">{{ prompt.notes if prompt and prompt.notes else '' }}</textarea>
+  </div>
+  <div class="flex gap-3">
+    <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">保存</button>
+    <a href="{{ url_for('prompt.index') }}" class="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">戻る</a>
+  </div>
+</form>
+{% endblock %}

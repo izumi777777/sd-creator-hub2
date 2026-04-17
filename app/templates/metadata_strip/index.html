@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}メタデータ削除 — Creator Portal{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-2">メタデータ削除・キャラ振り分け</h1>
+<p class="text-gray-600 text-sm mb-6">
+  ローカル（この PC 上）の<strong>インプットフォルダ</strong>内の画像から EXIF 等を除き、
+  <strong>アウトプットフォルダ</strong>へキャラ別サブフォルダで書き出します。
+  対応形式: JPEG / PNG / WebP
+</p>
+
+<div class="bg-amber-50 border border-amber-100 text-amber-900 text-sm rounded-lg p-4 mb-6 space-y-2">
+  <p><strong>注意:</strong> Flask が動いているマシン上のパスを指定してください（例: Windows は <code class="bg-amber-100 px-1 rounded">D:\sd\import</code>）。</p>
+  <p>インプットとアウトプットが同じ、または一方が他方の<strong>内側のフォルダ</strong>になる指定はできません。</p>
+</div>
+
+<form method="post" action="{{ url_for('metadata_strip.run') }}" class="max-w-2xl space-y-5 bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+  <div>
+    <label class="block text-sm font-medium text-gray-700 mb-1">インプットフォルダ（絶対パス）</label>
+    <input name="input_dir" type="text" required
+           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
+           placeholder="例: C:\Users\...\Pictures\with_exif">
+  </div>
+  <div>
+    <label class="block text-sm font-medium text-gray-700 mb-1">アウトプットフォルダ（絶対パス）</label>
+    <input name="output_dir" type="text" required
+           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
+           placeholder="例: C:\Users\...\Pictures\stripped">
+    <p class="text-xs text-gray-500 mt-1">存在しなければ作成します。キャラ名のサブフォルダがその下にできます。</p>
+  </div>
+
+  <div>
+    <p class="text-sm font-medium text-gray-700 mb-2">振り分けモード</p>
+    <label class="flex items-start gap-2 text-sm mb-2 cursor-pointer">
+      <input type="radio" name="mode" value="single_character" checked class="mt-1">
+      <span><strong>1キャラにまとめる</strong> — インプット内の画像をすべて、選んだキャラ名のフォルダへ。</span>
+    </label>
+    <label class="flex items-start gap-2 text-sm cursor-pointer">
+      <input type="radio" name="mode" value="subfolders" class="mt-1">
+      <span><strong>サブフォルダ＝キャラ</strong> — インプット直下の各フォルダ名をそのまま出力側のフォルダ名にします（<code class="text-xs bg-gray-100 px-1">さゆたそ\*.png</code> → <code class="text-xs bg-gray-100 px-1">出力\さゆたそ\</code>）。</span>
+    </label>
+  </div>
+
+  <div id="char-select">
+    <label class="block text-sm font-medium text-gray-700 mb-1">キャラクター（「1キャラにまとめる」のとき）</label>
+    <select name="character_id" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      <option value="">選択してください</option>
+      {% for c in characters %}
+      <option value="{{ c.id }}">{{ c.emoji }} {{ c.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <label class="flex items-center gap-2 text-sm cursor-pointer">
+    <input type="checkbox" name="recursive" value="1" class="rounded border-gray-300">
+    <span>サブフォルダを再帰的にたどる（深い階層の画像も対象）</span>
+  </label>
+
+  <button type="submit" class="px-5 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">
+    実行する
+  </button>
+</form>
+
+<script>
+  (function () {
+    const modes = document.querySelectorAll('input[name="mode"]');
+    const box = document.getElementById('char-select');
+    function sync() {
+      const single = document.querySelector('input[name="mode"][value="single_character"]').checked;
+      box.classList.toggle('opacity-50', !single);
+      box.querySelector('select').disabled = !single;
+    }
+    modes.forEach(function (m) { m.addEventListener('change', sync); });
+    sync();
+  })();
+</script>
+{% endblock %}

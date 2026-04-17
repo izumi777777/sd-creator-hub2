@@ -1,0 +1,31 @@
+{# include: sid, img, gallery_redirect #}
+{% if img.s3_key and img.storage_folder != 'text_overlay' %}
+<form method="post" action="{{ url_for('story.create_story_image_text_overlay', sid=sid, iid=img.id) }}" class="mt-2 pt-2 border-t border-dashed border-violet-100 space-y-1" onsubmit="return confirm('元画像は残したまま、テキスト入りの新しい画像を S3 に追加します。よろしいですか？');">
+  {% if gallery_redirect == 'index' %}<input type="hidden" name="redirect_target" value="story_index">{% endif %}
+  <p class="text-[11px] font-medium text-violet-900">テキスト焼き増し（別ファイル）</p>
+  <p class="text-[10px] text-gray-500 leading-snug">任意で<strong>上段</strong>（シーンのストーリー）・<strong>見出し（title）</strong>・<strong>セリフ</strong>を選べます。下段は章の speech またはプリセット。<code class="bg-violet-50 px-0.5 rounded">text_overlay</code> に保存します。</p>
+  <div class="flex flex-wrap gap-x-2 gap-y-1 items-end">
+    <label class="text-[10px] text-gray-600">シーン <input type="number" name="ch_no" min="1" class="w-11 border border-gray-200 rounded px-0.5 py-0.5 text-[11px]" placeholder="自動" title="空欄ならファイル名（_ch◯_）から推測"></label>
+    <label class="text-[10px] text-gray-600">パターン <input type="number" name="variant_index" min="0" class="w-10 border border-gray-200 rounded px-0.5 py-0.5 text-[11px]" placeholder="空" title="空=代表。_v0_ 形式のファイル名から推測も可"></label>
+    <label class="text-[10px] text-gray-600 shrink-0" title="下段のセリフの出所">セリフ源 <select name="speech_preset_index" class="border border-gray-200 rounded px-0.5 py-0.5 text-[11px] max-w-[9rem]">
+      <option value="" selected>章の speech</option>
+      {% for line in gallery_story.get_speech_presets() %}
+      <option value="{{ loop.index0 }}">プリ{{ loop.index }}{% if line and line.strip() %}: {{ line.strip()[:10] }}{% if line.strip()|length > 10 %}…{% endif %}{% endif %}</option>
+      {% endfor %}
+    </select></label>
+    <label class="text-[10px] text-gray-600" title="上段にシーンのストーリー（title と scene の帯）を載せるか">上段 <select name="overlay_include_top_story" class="border border-gray-200 rounded px-0.5 py-0.5 text-[11px] max-w-[7rem]">
+      <option value="1" selected>入れる</option>
+      <option value="0">入れない</option>
+    </select></label>
+    <label class="text-[10px] text-gray-600" title="上段オン時のみ: 章の見出し（title）を含めるか（オフは要約 scene のみ）">見出し <select name="overlay_include_chapter_title" class="border border-gray-200 rounded px-0.5 py-0.5 text-[11px] max-w-[7rem]">
+      <option value="1" selected>入れる</option>
+      <option value="0">入れない</option>
+    </select></label>
+    <label class="text-[10px] text-gray-600">セリフ <select name="overlay_include_speech" class="border border-gray-200 rounded px-0.5 py-0.5 text-[11px] max-w-[6.5rem]">
+      <option value="1" selected>入れる</option>
+      <option value="0">入れない</option>
+    </select></label>
+    <button type="submit" class="px-2 py-0.5 rounded-md bg-violet-600 text-white text-[11px] font-medium hover:bg-violet-700">新規作成</button>
+  </div>
+</form>
+{% endif %}

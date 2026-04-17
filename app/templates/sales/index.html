@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}売上・経費 — Creator Portal{% endblock %}
+{% block content %}
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+  <h1 class="text-2xl font-bold">月次売上・経費</h1>
+  <a href="{{ url_for('sales.new') }}" class="inline-flex justify-center px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">新規登録</a>
+</div>
+
+<p class="text-sm text-gray-600 mb-4 max-w-3xl">
+  経費は<strong>項目ごとの明細行</strong>で入力できます。月ごとの<strong>粗利（売上−支出）</strong>を一覧します（簡易メモ用・税務の正式集計ではありません）。
+  請求書などの PDF はナビの <a href="{{ url_for('documents.index') }}" class="text-indigo-600 hover:underline">書類</a> から S3 に保存できます（関連月を YYYY-MM で紐づけ可能）。
+</p>
+
+{% if records %}
+<div class="grid sm:grid-cols-3 gap-3 mb-6">
+  <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+    <p class="text-xs text-gray-500">登録月の売上合計</p>
+    <p class="text-xl font-semibold text-gray-900">¥{{ '{:,}'.format(sum_revenue) }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-amber-100 p-4 shadow-sm">
+    <p class="text-xs text-amber-900/80">支出合計</p>
+    <p class="text-xl font-semibold text-amber-900">¥{{ '{:,}'.format(sum_expenses) }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-emerald-100 p-4 shadow-sm">
+    <p class="text-xs text-emerald-900/80">粗利合計（売上−支出）</p>
+    <p class="text-xl font-semibold {% if sum_net >= 0 %}text-emerald-800{% else %}text-red-700{% endif %}">¥{{ '{:,}'.format(sum_net) }}</p>
+  </div>
+</div>
+
+<div class="overflow-x-auto bg-white rounded-xl border border-gray-200 shadow-sm">
+  <table class="min-w-full text-sm">
+    <thead>
+      <tr class="text-left text-gray-500 border-b bg-gray-50">
+        <th class="py-3 px-3 whitespace-nowrap">月</th>
+        <th class="py-3 px-3 whitespace-nowrap">PictSpace</th>
+        <th class="py-3 px-3 whitespace-nowrap">DLsite</th>
+        <th class="py-3 px-3 whitespace-nowrap">売上計</th>
+        <th class="py-3 px-3 min-w-[12rem]">経費内訳</th>
+        <th class="py-3 px-3 whitespace-nowrap">支出計</th>
+        <th class="py-3 px-3 whitespace-nowrap">粗利</th>
+        <th class="py-3 px-3 whitespace-nowrap">フォロワー</th>
+        <th class="py-3 px-3"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr class="border-b border-gray-100">
+        <td class="py-3 px-3 font-medium whitespace-nowrap">{{ r.month }}</td>
+        <td class="py-3 px-3 whitespace-nowrap">¥{{ '{:,}'.format(r.pict_revenue or 0) }}</td>
+        <td class="py-3 px-3 whitespace-nowrap">¥{{ '{:,}'.format(r.dl_revenue or 0) }}</td>
+        <td class="py-3 px-3 whitespace-nowrap font-medium">¥{{ '{:,}'.format(r.total) }}</td>
+        <td class="py-3 px-3 text-xs text-gray-700 align-top">
+          {% if r.expense_items %}
+          <ul class="space-y-0.5">
+            {% for it in r.expense_items %}
+            <li><span class="text-gray-600">{{ it.label }}</span> <span class="text-amber-900/90 font-medium">¥{{ '{:,}'.format(it.amount or 0) }}</span></li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <span class="text-gray-400">—</span>
+          {% endif %}
+        </td>
+        <td class="py-3 px-3 whitespace-nowrap">¥{{ '{:,}'.format(r.total_expenses) }}</td>
+        <td class="py-3 px-3 whitespace-nowrap font-medium {% if r.net >= 0 %}text-emerald-800{% else %}text-red-700{% endif %}">¥{{ '{:,}'.format(r.net) }}</td>
+        <td class="py-3 px-3 whitespace-nowrap">{{ r.followers }}</td>
+        <td class="py-3 px-3 whitespace-nowrap">
+          <a href="{{ url_for('sales.edit', rid=r.id) }}" class="text-indigo-600 hover:underline mr-2">編集</a>
+          <form method="post" action="{{ url_for('sales.delete', rid=r.id) }}" class="inline" onsubmit="return confirm('削除しますか？');">
+            <button type="submit" class="text-red-600 hover:underline">削除</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-gray-600">売上レコードがありません。</p>
+{% endif %}
+{% endblock %}

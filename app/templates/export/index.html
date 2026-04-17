@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}PDF / ZIP — Creator Portal{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-2">PDF / ZIP 書き出し</h1>
+<p class="text-gray-600 text-sm mb-6">登録済み画像を S3 から取得して PDF / ZIP を生成します。非公開バケットではサーバー側で署名付き URL を使います。</p>
+
+{% if not images %}
+<div class="bg-amber-50 border border-amber-100 text-amber-900 text-sm rounded-lg p-4 mb-6">
+  先に <a href="{{ url_for('image.index') }}" class="underline font-medium">画像</a> をアップロードし、S3 に紐づくレコードを用意してください。
+</div>
+{% endif %}
+
+<div class="grid lg:grid-cols-2 gap-8">
+  <section class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+    <h2 class="font-semibold mb-4">画像を選択</h2>
+    <div class="max-h-80 overflow-y-auto space-y-2 mb-4">
+      {% for img in images %}
+      {% if img.s3_key or img.s3_url %}
+      <label class="flex items-center gap-3 text-sm border border-gray-100 rounded-lg p-2 hover:bg-gray-50 cursor-pointer">
+        <input type="checkbox" name="image_ids" value="{{ img.id }}" form="form-pdf" class="rounded border-gray-300">
+        <span class="truncate flex-1">{{ img.file_name }} <span class="text-gray-400">({{ img.character.name if img.character else '' }}{% if img.story %} · {{ img.story.title or '無題' }}{% endif %})</span></span>
+      </label>
+      {% endif %}
+      {% endfor %}
+    </div>
+    <p class="text-xs text-gray-500">ZIP は右のフォーム内で別途チェックしてください。</p>
+  </section>
+
+  <div class="space-y-6">
+    <section class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+      <h2 class="font-semibold mb-4">PDF</h2>
+      <form id="form-pdf" method="post" action="{{ url_for('export.create_pdf') }}" class="space-y-3">
+        <div class="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">ページサイズ</label>
+            <select name="page_size" class="w-full border rounded-lg px-2 py-1.5 text-sm">
+              <option value="a4">A4</option>
+              <option value="a5">A5</option>
+              <option value="b5">B5</option>
+              <option value="square">正方形</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">フィット</label>
+            <select name="fit_mode" class="w-full border rounded-lg px-2 py-1.5 text-sm">
+              <option value="fit">fit</option>
+              <option value="fill">fill</option>
+              <option value="full">full</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">背景</label>
+            <select name="bg_color" class="w-full border rounded-lg px-2 py-1.5 text-sm">
+              <option value="white">白</option>
+              <option value="black">黒</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">ファイル名</label>
+            <input name="filename" value="作品.pdf" class="w-full border rounded-lg px-2 py-1.5 text-sm">
+          </div>
+        </div>
+        <button type="submit" class="w-full px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 {% if not images %}opacity-50{% endif %}" {% if not images %}disabled{% endif %}>PDF ダウンロード</button>
+      </form>
+    </section>
+
+    <section class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+      <h2 class="font-semibold mb-4">ZIP</h2>
+      <form id="form-zip" method="post" action="{{ url_for('export.create_zip') }}" class="space-y-3">
+        <p class="text-xs text-gray-500 mb-2">ZIP に含める画像を選択</p>
+        <div class="max-h-40 overflow-y-auto space-y-1 mb-2">
+          {% for img in images %}
+          {% if img.s3_key or img.s3_url %}
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="image_ids" value="{{ img.id }}" class="rounded border-gray-300">
+            <span class="truncate">{{ img.file_name }}</span>
+          </label>
+          {% endif %}
+          {% endfor %}
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">フォルダ構成</label>
+          <select name="structure" class="w-full border rounded-lg px-2 py-1.5 text-sm">
+            <option value="flat">フラット</option>
+            <option value="by_character">キャラ別フォルダ</option>
+            <option value="numbered">連番プレフィックス</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">ファイル名</label>
+          <input name="filename" value="画像素材.zip" class="w-full border rounded-lg px-2 py-1.5 text-sm">
+        </div>
+        <button type="submit" class="w-full px-4 py-2 rounded-lg bg-gray-800 text-white text-sm font-medium hover:bg-gray-900 {% if not images %}opacity-50{% endif %}" {% if not images %}disabled{% endif %}>ZIP ダウンロード</button>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

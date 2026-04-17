@@ -1,0 +1,111 @@
+<script>
+(function () {
+  function visiblePanel(root) {
+    var panels = root.querySelectorAll('.js-story-tab-panel');
+    if (!panels.length) return root;
+    for (var i = 0; i < panels.length; i++) {
+      if (!panels[i].classList.contains('hidden')) return panels[i];
+    }
+    return root;
+  }
+
+  function visibleCheckboxes(root) {
+    var scope = visiblePanel(root);
+    return scope ? scope.querySelectorAll('.story-img-cb') : [];
+  }
+
+  function syncBulk(root) {
+    var all = root.querySelector('.story-gallery-select-all');
+    var btn = root.querySelector('.story-gallery-bulk-btn');
+    if (!btn) return;
+    // フォーム外チェックボックス（form= 属性）も含め、このギャラリー内の選択数で判定する
+    var nAny = root.querySelectorAll('input[name="image_ids"]:checked').length;
+    btn.disabled = nAny === 0;
+    if (all) {
+      var arr = Array.prototype.slice.call(visibleCheckboxes(root));
+      var n = arr.filter(function (cb) {
+        return cb.checked;
+      }).length;
+      var total = arr.length;
+      all.checked = n === total && total > 0;
+      all.indeterminate = n > 0 && n < total;
+    }
+  }
+
+  function initBulk(root) {
+    if (root.dataset.storyGalleryBulkInit) return;
+    root.dataset.storyGalleryBulkInit = '1';
+    var all = root.querySelector('.story-gallery-select-all');
+
+    root.addEventListener('change', function (ev) {
+      var t = ev.target;
+      if (!t || (t.tagName || '').toLowerCase() !== 'input') return;
+      if (t.type === 'checkbox' && t.name === 'image_ids') syncBulk(root);
+    });
+
+    if (all) {
+      all.addEventListener('change', function () {
+        visibleCheckboxes(root).forEach(function (cb) {
+          cb.checked = all.checked;
+        });
+        syncBulk(root);
+      });
+    }
+
+    syncBulk(root);
+  }
+
+  function initTabs(root) {
+    var wrap = root.querySelector('.js-story-folder-tabs');
+    if (!wrap) return;
+    var count = parseInt(wrap.getAttribute('data-tab-count') || '0', 10);
+    if (count < 2) return;
+
+    var buttons = wrap.querySelectorAll('.story-folder-tab[role="tab"]');
+    var panels = root.querySelectorAll('.js-story-tab-panel');
+    var tabBase =
+      'story-folder-tab px-3 py-1.5 text-xs rounded-t-lg border border-b-0 -mb-px transition-colors';
+
+    function clearAllChecks() {
+      root.querySelectorAll('.story-img-cb').forEach(function (cb) {
+        cb.checked = false;
+      });
+    }
+
+    function showPanel(panelId) {
+      panels.forEach(function (p) {
+        if (p.id === panelId) {
+          p.classList.remove('hidden');
+        } else {
+          p.classList.add('hidden');
+        }
+      });
+      buttons.forEach(function (b) {
+        var on = b.getAttribute('data-story-panel') === panelId;
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+        var pid = b.getAttribute('data-story-panel') || '';
+        var activeTone = pid.indexOf('original') >= 0 ? 'text-indigo-800' : pid.indexOf('stripped') >= 0 ? 'text-teal-800' : 'text-gray-800';
+        b.className =
+          tabBase +
+          (on
+            ? ' border-gray-200 bg-white font-medium ' + activeTone
+            : ' border-transparent text-gray-500 hover:text-gray-800');
+      });
+      clearAllChecks();
+      syncBulk(root);
+    }
+
+    buttons.forEach(function (b) {
+      b.addEventListener('click', function () {
+        var id = b.getAttribute('data-story-panel');
+        if (id) showPanel(id);
+      });
+    });
+  }
+
+  document.querySelectorAll('.js-story-gallery-root').forEach(function (root) {
+    initBulk(root);
+    initTabs(root);
+  });
+})();
+</script>

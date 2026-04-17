@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}インフラコンソール — 設定が必要です{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto mt-8 p-6 bg-white border border-amber-200 rounded-xl shadow-sm">
+  <h1 class="text-lg font-semibold text-amber-950">インフラコンソールはまだ有効化されていません</h1>
+  <p class="text-sm text-gray-700 mt-3 leading-relaxed">
+    ナビの「インフラ」は表示されていますが、<strong>操作に必要なトークン</strong>が <code class="text-xs bg-gray-100 px-1 rounded">.env</code> にありません。
+    次を設定してから <strong>ポータル（Flask）を再起動</strong>してください。
+  </p>
+  <ul class="mt-4 text-sm text-gray-800 list-disc pl-5 space-y-2">
+    <li><strong>ローカルだけで使う</strong>場合: <code class="text-xs bg-gray-100 px-1 rounded">OPS_CONSOLE_NO_PASSWORD=1</code> を追加するとトークン不要で開けます（本番では使わないでください）。</li>
+    <li><code class="text-xs bg-gray-100 px-1 rounded">OPS_CONSOLE_TOKEN</code> … 十分長いランダム文字列（ログイン画面で入力。無パスワードモードと併用しないでください）</li>
+    <li><code class="text-xs bg-gray-100 px-1 rounded">OPS_EC2_INSTANCE_ID</code> … 対象 EC2 の <code class="text-xs">i-xxxxxxxx</code>（任意だが未設定だと状態取得・起停ができません）</li>
+    <li><code class="text-xs bg-gray-100 px-1 rounded">OPS_EC2_REGION</code> … 省略時は S3 と同じリージョンを使用します</li>
+  </ul>
+  <p class="text-xs text-gray-600 mt-4 leading-relaxed">
+    ナビを常に出したいだけのときは <code class="bg-gray-100 px-1 rounded">OPS_INFRA_NAV=1</code> を追加できます（トークン未設定のままではこの説明ページのままです）。
+    トークンを設定するとログイン後に EC2 起停・Stable Diffusion（systemd）の SSM 再起動が使えます。
+  </p>
+  <p class="mt-6">
+    <a href="{{ url_for('dashboard.index') }}" class="text-sm text-indigo-600 hover:underline">← ダッシュボードへ戻る</a>
+  </p>
+</div>
+{% endblock %}

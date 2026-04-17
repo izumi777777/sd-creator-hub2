@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}ダッシュボード — Creator Portal{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-gray-900 mb-2">ダッシュボード</h1>
+<p class="text-gray-600 text-sm mb-6">作品・キャラ・売上のざっくり把握とショートカット。</p>
+
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
+  <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+    <p class="text-xs text-gray-500">作品</p>
+    <p class="text-2xl font-semibold">{{ work_count }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+    <p class="text-xs text-gray-500">キャラ</p>
+    <p class="text-2xl font-semibold">{{ character_count }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+    <p class="text-xs text-gray-500">ストーリー</p>
+    <p class="text-2xl font-semibold">{{ story_count }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+    <p class="text-xs text-gray-500">画像</p>
+    <p class="text-2xl font-semibold">{{ image_count }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+    <p class="text-xs text-gray-500">プロンプト</p>
+    <p class="text-2xl font-semibold">{{ prompt_count }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+    <p class="text-xs text-gray-500">作品売上（簡易）</p>
+    <p class="text-lg font-semibold">¥{{ '{:,}'.format(total_revenue_works) }}</p>
+  </div>
+</div>
+
+<div class="grid md:grid-cols-2 gap-6">
+  <section class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+    <h2 class="font-semibold mb-3">最近の作品</h2>
+    {% if recent_works %}
+    <ul class="space-y-2 text-sm">
+      {% for w in recent_works %}
+      <li class="flex justify-between gap-2">
+        <a href="{{ url_for('work.edit', wid=w.id) }}" class="text-indigo-600 hover:underline truncate">{{ w.title }}</a>
+        <span class="text-gray-500 shrink-0">{{ w.status_label }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-gray-500 text-sm">まだありません。<a href="{{ url_for('work.new') }}" class="text-indigo-600">作品を追加</a></p>
+    {% endif %}
+  </section>
+
+  <section class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+    <h2 class="font-semibold mb-3">最近のストーリー</h2>
+    {% if recent_stories %}
+    <ul class="space-y-2 text-sm">
+      {% for s in recent_stories %}
+      <li>
+        <a href="{{ url_for('story.detail', sid=s.id) }}" class="text-indigo-600 hover:underline">{{ s.title or '（無題）' }}</a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-gray-500 text-sm"><a href="{{ url_for('story.index') }}" class="text-indigo-600">ストーリー生成</a>から作成できます。</p>
+    {% endif %}
+  </section>
+</div>
+
+<section class="mt-8 bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+  <h2 class="font-semibold mb-3">月次売上・経費（手入力・直近6ヶ月）</h2>
+  {% if sales_rows %}
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead>
+        <tr class="text-left text-gray-500 border-b">
+          <th class="py-2 pr-3 whitespace-nowrap">月</th>
+          <th class="py-2 pr-3 whitespace-nowrap">売上計</th>
+          <th class="py-2 pr-3 whitespace-nowrap">支出計</th>
+          <th class="py-2 pr-3 whitespace-nowrap">粗利</th>
+          <th class="py-2 whitespace-nowrap">フォロワー</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in sales_rows %}
+        <tr class="border-b border-gray-100">
+          <td class="py-2 pr-3 whitespace-nowrap">{{ r.month }}</td>
+          <td class="py-2 pr-3 whitespace-nowrap font-medium">¥{{ '{:,}'.format(r.total) }}</td>
+          <td class="py-2 pr-3 whitespace-nowrap text-amber-900/90">¥{{ '{:,}'.format(r.total_expenses) }}</td>
+          <td class="py-2 pr-3 whitespace-nowrap font-medium {% if r.net >= 0 %}text-emerald-800{% else %}text-red-700{% endif %}">¥{{ '{:,}'.format(r.net) }}</td>
+          <td class="py-2 whitespace-nowrap">{{ r.followers }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-xs text-gray-500 mt-2"><a href="{{ url_for('sales.index') }}" class="text-indigo-600 hover:underline">売上タブ</a>で内訳（サーバー等／その他）を編集できます。</p>
+  {% else %}
+  <p class="text-gray-500 text-sm"><a href="{{ url_for('sales.new') }}" class="text-indigo-600">売上を登録</a>するとここに表示されます。</p>
+  {% endif %}
+</section>
+{% endblock %}

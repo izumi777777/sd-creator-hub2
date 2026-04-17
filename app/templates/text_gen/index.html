@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}テキスト生成 — Creator Portal{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-2">投稿・販売テキスト生成</h1>
+<p class="text-gray-600 text-sm mb-6">Pixiv / DLsite / PictSpace 向けに Claude で JSON を生成します。</p>
+
+{% if not characters %}
+<div class="bg-amber-50 border border-amber-100 text-amber-900 text-sm rounded-lg p-4 mb-6">
+  <a href="{{ url_for('character.new') }}" class="underline font-medium">キャラクター</a> を先に登録してください。
+</div>
+{% endif %}
+
+<div class="grid lg:grid-cols-2 gap-8">
+  <section class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+    <form
+      hx-post="{{ url_for('text_gen.generate') }}"
+      hx-target="#text-gen-result"
+      hx-swap="innerHTML"
+      class="space-y-4"
+    >
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">プラットフォーム</label>
+        <select name="platform" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          <option value="pixiv">Pixiv</option>
+          <option value="dlsite">DLsite</option>
+          <option value="pictspace">PictSpace</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">キャラクター *</label>
+        <select name="character_id" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" {% if not characters %}disabled{% endif %}>
+          <option value="">選択</option>
+          {% for c in characters %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">作品の概要 *</label>
+        <textarea name="overview" rows="5" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="あらすじ・テーマ・収録枚数など"></textarea>
+      </div>
+      <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700" {% if not characters %}disabled{% endif %}>生成</button>
+    </form>
+  </section>
+  <section class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm min-h-[200px]">
+    <h2 class="font-semibold mb-4">結果</h2>
+    <div id="text-gen-result" class="text-sm text-gray-500">フォームから実行すると表示されます。</div>
+  </section>
+</div>
+{% endblock %}

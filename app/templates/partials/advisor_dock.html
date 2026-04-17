@@ -1,0 +1,57 @@
+{# 全ページ下部: Gemini 相談ドック。advisor_context_default / advisor_context_labels は context_processor で注入 #}
+<div id="advisor-dock" class="fixed bottom-0 left-0 right-0 z-50 border-t border-gray-200 dark:border-slate-600 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm shadow-[0_-4px_24px_rgba(0,0,0,.08)] dark:shadow-[0_-4px_24px_rgba(0,0,0,.45)]">
+  <details class="group max-w-6xl mx-auto">
+    <summary class="cursor-pointer list-none px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 bg-indigo-50/90 dark:bg-indigo-950/85 hover:bg-indigo-50 dark:hover:bg-indigo-900/80 text-sm font-medium text-gray-900 dark:text-slate-100 [&::-webkit-details-marker]:hidden">
+      <span class="select-none">💬 Gemini に相談（生成AI・Pixiv・販売など）</span>
+      <span class="text-xs font-normal text-gray-500 dark:text-slate-400">開いて質問 · 履歴はタブ内で継続（リセット可）· モード自動選択</span>
+    </summary>
+    <div class="px-4 sm:px-6 pb-4 pt-3 border-t border-gray-100 dark:border-slate-700 max-h-[min(60vh,32rem)] overflow-y-auto">
+      <form
+        hx-post="{{ url_for('advisor.ask') }}"
+        hx-target="#advisor-reply"
+        hx-swap="innerHTML"
+        hx-indicator="#advisor-htmx-spinner"
+        class="space-y-3"
+      >
+        <div class="flex flex-wrap items-end gap-3">
+          <div class="grow min-w-[12rem]">
+            <label class="block text-xs font-medium text-gray-600 dark:text-slate-300 mb-1">相談の種類</label>
+            <select name="context" class="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">
+              {% for key, label in advisor_context_labels %}
+              <option value="{{ key }}" {% if key == advisor_context_default %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        {% if advisor_story_context_text %}
+        <div class="rounded-lg bg-amber-50/60 dark:bg-amber-950/40 border border-amber-100 dark:border-amber-800 px-3 py-2 space-y-1">
+          <label class="flex items-start gap-2 text-xs text-gray-800 dark:text-slate-200 cursor-pointer">
+            <input type="checkbox" name="attach_story" value="1" checked class="mt-0.5 rounded border-gray-300 dark:border-slate-500">
+            <span><strong>ストーリー資料を相談に含める</strong> — {{ advisor_story_context_label }}</span>
+          </label>
+          <textarea name="story_context" class="hidden" aria-hidden="true">{{ advisor_story_context_text }}</textarea>
+          <p class="text-xs text-gray-500 dark:text-slate-400 pl-6">オフにすると履歴だけで答えます（トークン節約）。Pixiv 用は「販売文・キャプション」とこのチェックがおすすめです。</p>
+        </div>
+        {% endif %}
+        <div>
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-300 mb-1">メッセージ</label>
+          <textarea name="message" rows="4" required class="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100" placeholder="{% if advisor_story_context_text %}例: このストーリーで Pixiv 用のタイトル案を3つ、キャプション1本、タグを英語・日本語で提案して{% else %}例: Pixiv の R-18 表記で気をつけることは？{% endif %}"></textarea>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">
+            送信
+          </button>
+          <span id="advisor-htmx-spinner" class="htmx-indicator text-sm text-gray-500 dark:text-slate-400">考え中…</span>
+          <button
+            type="button"
+            class="ml-auto text-xs text-gray-500 dark:text-slate-400 hover:text-gray-800 dark:hover:text-slate-200 underline"
+            hx-post="{{ url_for('advisor.clear_history') }}"
+            hx-target="#advisor-reply"
+            hx-swap="innerHTML"
+          >会話をリセット</button>
+        </div>
+      </form>
+      <div id="advisor-reply" class="mt-4 min-h-[1rem]"></div>
+    </div>
+  </details>
+</div>

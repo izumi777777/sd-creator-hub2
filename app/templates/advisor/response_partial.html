@@ -1,0 +1,10 @@
+{# htmx 差し込み用 #}
+<div class="rounded-lg border border-indigo-100 bg-indigo-50/40 p-3 text-sm text-gray-800">
+  <p class="text-xs font-medium text-indigo-800 mb-2">
+    回答{% if context_key %}（{{ context_key }}）{% endif %}
+    {% if history_rounds is defined and history_rounds > 0 %}
+    <span class="font-normal text-gray-500">· 会話 {{ history_rounds }} ターン分を参照</span>
+    {% endif %}
+  </p>
+  <div class="whitespace-pre-wrap leading-relaxed max-h-[min(50vh,28rem)] overflow-y-auto">{{ reply }}</div>
+</div>

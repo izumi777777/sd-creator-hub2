@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}プロンプト — Creator Portal{% endblock %}
+{% block content %}
+<div class="flex flex-col lg:flex-row lg:items-start gap-8">
+  <div class="flex-1">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+      <h1 class="text-2xl font-bold">プロンプトライブラリ</h1>
+      <a href="{{ url_for('prompt.new') }}" class="inline-flex justify-center px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">手動で追加</a>
+    </div>
+
+    <form method="get" class="mb-4">
+      <label class="text-sm text-gray-600 mr-2">キャラで絞り込み</label>
+      <select name="character_id" class="border border-gray-300 rounded-lg px-3 py-2 text-sm" onchange="this.form.submit()">
+        <option value="">すべて</option>
+        {% for c in characters %}
+        <option value="{{ c.id }}" {% if filter_character_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </form>
+
+    {% if prompts %}
+    <div class="space-y-3">
+      {% for p in prompts %}
+      <article class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm {% if p.is_starred %}ring-1 ring-amber-200{% endif %}">
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            {% if p.is_starred %}<span class="text-amber-500 text-sm">★</span>{% endif %}
+            <span class="font-medium">{{ p.situation or '（シチュ未設定）' }}</span>
+            <span class="text-gray-400 text-sm ml-2">{{ p.character.name if p.character else '' }}</span>
+          </div>
+          <div class="flex flex-wrap gap-2 text-xs">
+            <a href="{{ url_for('prompt.edit', pid=p.id) }}" class="text-indigo-600 hover:underline">編集</a>
+            <form method="post" action="{{ url_for('prompt.star', pid=p.id) }}" class="inline">
+              <button type="submit" class="text-amber-700 hover:underline">★切替</button>
+            </form>
+            <form method="post" action="{{ url_for('prompt.delete', pid=p.id) }}" class="inline" onsubmit="return confirm('削除しますか？');">
+              <button type="submit" class="text-red-600 hover:underline">削除</button>
+            </form>
+          </div>
+        </div>
+        {% if p.positive %}
+        <pre id="pp-{{ p.id }}" class="text-xs bg-gray-50 border rounded p-2 mt-2 overflow-x-auto">{{ p.positive }}</pre>
+        <button type="button" onclick="copyText('pp-{{ p.id }}')" class="text-xs text-indigo-600 hover:underline mt-1">Positive コピー</button>
+        {% endif %}
+        {% if p.negative %}
+        <pre id="pn-{{ p.id }}" class="text-xs bg-gray-50 border rounded p-2 mt-2 overflow-x-auto">{{ p.negative }}</pre>
+        <button type="button" onclick="copyText('pn-{{ p.id }}')" class="text-xs text-indigo-600 hover:underline mt-1">Negative コピー</button>
+        {% endif %}
+        {% if p.notes %}
+        <p class="text-xs text-gray-600 mt-2">{{ p.notes }}</p>
+        {% endif %}
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-gray-500 text-sm">プロンプトがありません。右の AI 生成または手動追加をどうぞ。</p>
+    {% endif %}
+  </div>
+
+  <aside class="w-full lg:w-96 shrink-0 bg-white rounded-xl border border-gray-200 p-5 shadow-sm lg:sticky lg:top-4">
+    <h2 class="font-semibold mb-4">AI でプロンプト生成</h2>
+    {% if not characters %}
+    <p class="text-sm text-amber-800">キャラを先に登録してください。</p>
+    {% else %}
+    <form
+      hx-post="{{ url_for('prompt.generate') }}"
+      hx-target="#prompt-gen-result"
+      hx-swap="innerHTML"
+      class="space-y-3"
+    >
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">キャラ *</label>
+        <select name="character_id" required class="w-full border rounded-lg px-2 py-1.5 text-sm">
+          {% for c in characters %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">シチュエーション説明 *</label>
+        <textarea name="situation" rows="4" required class="w-full border rounded-lg px-2 py-1.5 text-sm" placeholder="雨の中で傘をさして振り返る、など"></textarea>
+      </div>
+      <button type="submit" class="w-full px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800">生成</button>
+    </form>
+    <div id="prompt-gen-result" class="mt-4 text-sm text-gray-500 min-h-[3rem]">結果がここに出ます。</div>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

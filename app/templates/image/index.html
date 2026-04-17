@@ -1,0 +1,474 @@
+{% extends "base.html" %}
+{% block title %}画像 — Creator Portal{% endblock %}
+
+{% macro image_card(img) %}
+<article class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm relative">
+  <label class="absolute top-2 left-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded border border-gray-200 bg-white/95 shadow-sm" title="一括削除に含める">
+    <input type="checkbox" name="image_ids" value="{{ img.id }}" form="image-bulk-delete-form" class="image-img-cb h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+  </label>
+  {% if img.s3_key %}
+  <a href="{{ url_for('image.preview', iid=img.id) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
+    <img src="{{ url_for('image.preview', iid=img.id) }}" alt="" class="w-full h-full object-contain" loading="lazy">
+  </a>
+  {% elif img.s3_url %}
+  <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">
+    <img src="{{ img.s3_url }}" alt="" class="w-full h-full object-contain" loading="lazy">
+  </a>
+  {% else %}
+  <div class="aspect-video bg-gray-100 flex items-center justify-center text-gray-400 text-sm">URL なし</div>
+  {% endif %}
+  <div class="p-3 text-sm">
+    <p class="font-medium truncate">{{ img.file_name }}</p>
+    <p class="text-xs text-gray-500">{{ img.character.name if img.character else '' }}</p>
+    <p class="text-xs text-gray-500 mt-1">
+      {% if img.storage_folder == 'original' %}<span class="text-indigo-700">原本</span>
+      {% elif img.storage_folder == 'stripped' %}<span class="text-teal-700">メタなし</span>
+      {% elif img.storage_folder == 'text_overlay' %}<span class="text-violet-800">テキスト焼き増し</span>
+      {% else %}<span class="text-gray-400">移行前</span>{% endif %}
+      {% if img.story %}<span class="text-gray-600"> · {{ img.story.title or '（無題ストーリー）' }}</span>{% endif %}
+    </p>
+    <form method="post" action="{{ url_for('image.delete', iid=img.id) }}" class="mt-2" onsubmit="return confirm('DB と S3 のオブジェクトを削除しますか？');">
+      <button type="submit" class="text-xs text-red-600 hover:underline">レコード削除</button>
+    </form>
+  </div>
+</article>
+{% endmacro %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-2">画像（Amazon S3）</h1>
+<p class="text-gray-600 text-sm mb-6">キャラクターごとに <strong class="text-gray-800">original</strong>（メタデータあり・原本）と <strong class="text-gray-800">stripped</strong>（メタデータなし・配布用）のサブフォルダへ分けて保存します。ストーリーに紐づければ一覧・詳細からたどれます。</p>
+
+{% if not s3_configured %}
+<div class="bg-amber-50 border border-amber-100 text-amber-900 text-sm rounded-lg p-4 mb-6">
+  S3 の環境変数が未設定です。.env.example を参考に <code class="bg-amber-100 px-1 rounded">AWS_*</code> を設定してください。
+</div>
+{% endif %}
+
+<div id="image-upload-overlay" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/50 px-4" aria-hidden="true">
+  <div class="bg-white rounded-xl shadow-xl border border-gray-200 p-6 max-w-md w-full">
+    <p class="text-sm font-medium text-gray-800 mb-1">画像をアップロードしています</p>
+    <p id="image-upload-status" class="text-xs text-gray-600 mb-3">準備中…</p>
+    <div class="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden border border-gray-200">
+      <div id="image-upload-bar" class="h-full w-0 bg-indigo-600 transition-[width] duration-150 ease-out rounded-full"></div>
+    </div>
+    <p class="text-right text-xs text-gray-500 mt-2"><span id="image-upload-pct">0%</span></p>
+    <p class="text-xs text-gray-400 mt-3">ブラウザ→サーバーまでの進捗です。100% のあとも S3 保存・DB 登録に少し時間がかかることがあります。</p>
+    <button type="button" id="image-upload-dismiss" class="hidden mt-4 w-full px-3 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">閉じる</button>
+  </div>
+</div>
+
+<section class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm mb-8">
+  <h2 class="font-semibold mb-4">アップロード</h2>
+  <form id="image-upload-form" method="post" action="{{ url_for('image.upload') }}" enctype="multipart/form-data" class="space-y-4 max-w-xl">
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">キャラクター *</label>
+      <select name="character_id" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        {% for c in characters %}
+        <option value="{{ c.id }}" {% if filter_character_id == c.id or (not filter_character_id and loop.first) %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">保存先（S3 サブフォルダ）*</label>
+      <p class="text-xs text-gray-500 mb-2">同じキャラ内で「原本」と「メタ削除後」をフォルダ分けします（ZIP にせずそのままの画像形式でアップロード可）。</p>
+      <div class="space-y-2 text-sm">
+        <label class="flex items-start gap-2 cursor-pointer">
+          <input type="radio" name="storage_folder" value="original" class="mt-1" {% if filter_storage_folder != 'stripped' %}checked{% endif %}>
+          <span><span class="font-medium">メタデータあり（原本）</span> — S3: <code class="text-xs bg-gray-100 px-1 rounded">…/original/…</code></span>
+        </label>
+        <label class="flex items-start gap-2 cursor-pointer">
+          <input type="radio" name="storage_folder" value="stripped" class="mt-1" {% if filter_storage_folder == 'stripped' %}checked{% endif %}>
+          <span><span class="font-medium">メタデータなし（配布・投稿用）</span> — S3: <code class="text-xs bg-gray-100 px-1 rounded">…/stripped/…</code></span>
+        </label>
+      </div>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">ストーリー（任意）</label>
+      <select name="story_id" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        <option value="">紐づけない</option>
+        {% for c in characters %}
+          {% if (not filter_character_id or filter_character_id == c.id) and c.stories %}
+            {% if not filter_character_id %}<optgroup label="{{ c.name }}">{% endif %}
+            {% for s in c.stories|sort(attribute='created_at', reverse=True) %}
+            <option value="{{ s.id }}" {% if filter_story_id == s.id %}selected{% endif %}>{{ s.title or '（無題）' }}</option>
+            {% endfor %}
+            {% if not filter_character_id %}</optgroup>{% endif %}
+          {% endif %}
+        {% endfor %}
+      </select>
+      <p class="text-xs text-gray-500 mt-1">選択したキャラと同じストーリーのみ有効です（異なる場合は送信時に弾きます）。</p>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">作品（任意）</label>
+      <select name="work_id" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        <option value="">なし</option>
+        {% for w in works %}
+        <option value="{{ w.id }}">{{ w.character.name if w.character else '' }} — {{ w.title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">ファイル *（複数選択可）</label>
+      <p class="text-xs text-gray-500 mb-1">PNG / JPEG / WebP / GIF をそのまま、一度に複数枚選べます（ZIP 不要）。</p>
+      <input type="file" name="file" accept="image/*" multiple required class="text-sm max-w-full">
+    </div>
+    <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 {% if not s3_configured %}opacity-50 cursor-not-allowed{% endif %}" {% if not s3_configured %}disabled{% endif %}>アップロード</button>
+  </form>
+</section>
+
+<section>
+  <div class="flex flex-col gap-4 mb-4">
+    <form method="get" class="flex flex-wrap items-end gap-3">
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">キャラ</label>
+        <select name="character_id" class="border border-gray-300 rounded-lg px-3 py-2 text-sm" onchange="this.form.querySelector('[name=story_id]').value=''; this.form.submit();">
+          <option value="">すべて</option>
+          {% for c in characters %}
+          <option value="{{ c.id }}" {% if filter_character_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">ストーリー</label>
+        <select name="story_id" class="border border-gray-300 rounded-lg px-3 py-2 text-sm min-w-[10rem]" onchange="this.form.submit()">
+          <option value="">すべて</option>
+          {% for c in characters %}
+            {% if (not filter_character_id or filter_character_id == c.id) and c.stories %}
+              {% if not filter_character_id %}<optgroup label="{{ c.name }}">{% endif %}
+              {% for s in c.stories|sort(attribute='created_at', reverse=True) %}
+              <option value="{{ s.id }}" {% if filter_story_id == s.id %}selected{% endif %}>{{ s.title or '（無題）' }}</option>
+              {% endfor %}
+              {% if not filter_character_id %}</optgroup>{% endif %}
+            {% endif %}
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">フォルダ種別</label>
+        <select name="storage_folder" class="border border-gray-300 rounded-lg px-3 py-2 text-sm" onchange="this.form.submit()">
+          <option value="">すべて</option>
+          <option value="original" {% if filter_storage_folder == 'original' %}selected{% endif %}>原本（original）</option>
+          <option value="stripped" {% if filter_storage_folder == 'stripped' %}selected{% endif %}>メタなし（stripped）</option>
+          <option value="__legacy__" {% if filter_storage_folder == '__legacy__' %}selected{% endif %}>移行前（サブフォルダなし）</option>
+        </select>
+      </div>
+    </form>
+  </div>
+
+  <p class="text-xs text-gray-600 mb-2">一覧では各カード左上のチェックで複数選択し、<strong>選択を一括削除</strong>で S3・DB からまとめて削除できます（最大 80 件／回）。1 件だけなら従来どおり「レコード削除」でも構いません。</p>
+  {% if images_split %}
+  <p class="text-xs text-indigo-800 bg-indigo-50/80 border border-indigo-100 rounded-lg px-3 py-2 mb-3">フォルダ種別が「すべて」のときは、<strong>メタデータあり（原本）</strong>と<strong>メタデータなし（配布用）</strong>を別ブロックで表示します。どちらか一方にしか画像がない場合はタブは出ません（見やすさのため）。</p>
+  {% endif %}
+
+  {% if images_split %}
+    {% set n_orig = images_original|length %}
+    {% set n_str = images_stripped|length %}
+    {% set n_cap = images_text_overlay|length %}
+    {% set n_leg = images_legacy|length %}
+    {% set n_total = n_orig + n_str + n_cap + n_leg %}
+    {% set tab_count = (1 if n_orig else 0) + (1 if n_str else 0) + (1 if n_cap else 0) + (1 if n_leg else 0) %}
+    {% if n_orig %}{% set first_tab = 'original' %}
+    {% elif n_str %}{% set first_tab = 'stripped' %}
+    {% elif n_cap %}{% set first_tab = 'text_overlay' %}
+    {% elif n_leg %}{% set first_tab = 'legacy' %}
+    {% else %}{% set first_tab = '' %}
+    {% endif %}
+  {% endif %}
+
+  {% if (not images_split and images) or (images_split and (images_original|length + images_stripped|length + images_text_overlay|length + images_legacy|length) > 0) %}
+  <form id="image-bulk-delete-form" method="post" action="{{ url_for('image.bulk_delete') }}" class="mb-4 flex flex-wrap items-center gap-3 text-sm" onsubmit="return typeof window.imageBulkDeleteConfirm === 'function' && window.imageBulkDeleteConfirm();">
+    {% if filter_character_id %}<input type="hidden" name="redirect_character_id" value="{{ filter_character_id }}">{% endif %}
+    {% if filter_story_id %}<input type="hidden" name="redirect_story_id" value="{{ filter_story_id }}">{% endif %}
+    {% if filter_storage_folder %}<input type="hidden" name="redirect_storage_folder" value="{{ filter_storage_folder }}">{% endif %}
+    <label class="inline-flex items-center gap-2 cursor-pointer text-gray-700 select-none">
+      <input type="checkbox" id="image-img-select-all" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+      表示中の一覧だけ全選択
+    </label>
+    <button type="submit" id="image-bulk-delete-btn" class="px-3 py-1.5 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed" disabled>選択を一括削除</button>
+  </form>
+  {% endif %}
+
+  <div class="js-image-gallery-root">
+  {% if images_split %}
+    {% if n_total > 0 %}
+    <p class="text-xs text-gray-500 mb-3">内訳: 原本 <span class="font-mono text-gray-700">{{ n_orig }}</span> 枚 · メタなし <span class="font-mono text-gray-700">{{ n_str }}</span> 枚 · テキスト焼き増し <span class="font-mono text-gray-700">{{ n_cap }}</span> 枚 · 移行前 <span class="font-mono text-gray-700">{{ n_leg }}</span> 枚</p>
+    {% endif %}
+    {% if n_total == 0 %}
+    <p class="text-gray-500 text-sm">画像がありません。</p>
+    {% else %}
+    <div class="js-image-folder-tabs" data-image-tab-count="{{ tab_count }}">
+      {% if tab_count >= 2 %}
+      <div class="flex flex-wrap gap-1 mb-4 border-b border-gray-200" role="tablist" aria-label="保存フォルダ別">
+        {% if n_orig %}
+        <button type="button" role="tab" id="image-tab-original" class="image-folder-tab px-3 py-2 text-sm rounded-t-lg border border-b-0 -mb-px transition-colors {% if first_tab == 'original' %}border-gray-200 bg-white text-indigo-800 font-medium{% else %}border-transparent text-gray-500 hover:text-gray-800{% endif %}" aria-selected="{{ 'true' if first_tab == 'original' else 'false' }}" data-panel="image-panel-original">原本（メタあり）<span class="text-gray-400 font-normal">· {{ n_orig }}</span></button>
+        {% endif %}
+        {% if n_str %}
+        <button type="button" role="tab" id="image-tab-stripped" class="image-folder-tab px-3 py-2 text-sm rounded-t-lg border border-b-0 -mb-px transition-colors {% if first_tab == 'stripped' %}border-gray-200 bg-white text-teal-800 font-medium{% else %}border-transparent text-gray-500 hover:text-gray-800{% endif %}" aria-selected="{{ 'true' if first_tab == 'stripped' else 'false' }}" data-panel="image-panel-stripped">メタなし（配布用）<span class="text-gray-400 font-normal">· {{ n_str }}</span></button>
+        {% endif %}
+        {% if n_cap %}
+        <button type="button" role="tab" id="image-tab-text_overlay" class="image-folder-tab px-3 py-2 text-sm rounded-t-lg border border-b-0 -mb-px transition-colors {% if first_tab == 'text_overlay' %}border-gray-200 bg-white text-violet-900 font-medium{% else %}border-transparent text-gray-500 hover:text-gray-800{% endif %}" aria-selected="{{ 'true' if first_tab == 'text_overlay' else 'false' }}" data-panel="image-panel-text_overlay">テキスト焼き増し<span class="text-gray-400 font-normal">· {{ n_cap }}</span></button>
+        {% endif %}
+        {% if n_leg %}
+        <button type="button" role="tab" id="image-tab-legacy" class="image-folder-tab px-3 py-2 text-sm rounded-t-lg border border-b-0 -mb-px transition-colors {% if first_tab == 'legacy' %}border-gray-200 bg-white text-gray-800 font-medium{% else %}border-transparent text-gray-500 hover:text-gray-800{% endif %}" aria-selected="{{ 'true' if first_tab == 'legacy' else 'false' }}" data-panel="image-panel-legacy">移行前<span class="text-gray-400 font-normal">· {{ n_leg }}</span></button>
+        {% endif %}
+      </div>
+      {% elif n_orig %}
+      <h3 id="image-heading-original" class="text-sm font-semibold text-indigo-900 mb-2">原本（メタデータあり）<span class="text-gray-500 font-normal">· {{ n_orig }} 枚</span></h3>
+      {% elif n_str %}
+      <h3 id="image-heading-stripped" class="text-sm font-semibold text-teal-900 mb-2">メタデータなし（配布・投稿用）<span class="text-gray-500 font-normal">· {{ n_str }} 枚</span></h3>
+      {% elif n_cap %}
+      <h3 id="image-heading-text_overlay" class="text-sm font-semibold text-violet-900 mb-2">テキスト焼き増し<span class="text-gray-500 font-normal">· {{ n_cap }} 枚</span></h3>
+      {% elif n_leg %}
+      <h3 id="image-heading-legacy" class="text-sm font-semibold text-gray-800 mb-2">移行前（サブフォルダなし）<span class="text-gray-500 font-normal">· {{ n_leg }} 枚</span></h3>
+      {% endif %}
+
+      {% if n_orig %}
+      <div id="image-panel-original" role="tabpanel" aria-labelledby="{% if tab_count >= 2 %}image-tab-original{% else %}image-heading-original{% endif %}" class="js-image-tab-panel mb-2 {% if first_tab != 'original' %}hidden{% endif %}">
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {% for img in images_original %}{{ image_card(img) }}{% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if n_str %}
+      <div id="image-panel-stripped" role="tabpanel" aria-labelledby="{% if tab_count >= 2 %}image-tab-stripped{% else %}image-heading-stripped{% endif %}" class="js-image-tab-panel mb-2 {% if first_tab != 'stripped' %}hidden{% endif %}">
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {% for img in images_stripped %}{{ image_card(img) }}{% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if n_cap %}
+      <div id="image-panel-text_overlay" role="tabpanel" aria-labelledby="{% if tab_count >= 2 %}image-tab-text_overlay{% else %}image-heading-text_overlay{% endif %}" class="js-image-tab-panel mb-2 {% if first_tab != 'text_overlay' %}hidden{% endif %}">
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {% for img in images_text_overlay %}{{ image_card(img) }}{% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if n_leg %}
+      <div id="image-panel-legacy" role="tabpanel" aria-labelledby="{% if tab_count >= 2 %}image-tab-legacy{% else %}image-heading-legacy{% endif %}" class="js-image-tab-panel mb-2 {% if first_tab != 'legacy' %}hidden{% endif %}">
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {% for img in images_legacy %}{{ image_card(img) }}{% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  {% else %}
+    {% if images %}
+    <div class="js-image-tab-panel">
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for img in images %}{{ image_card(img) }}{% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <p class="text-gray-500 text-sm">画像がありません。</p>
+    {% endif %}
+  {% endif %}
+  </div>
+</section>
+
+{% if s3_configured %}
+<script>
+(function () {
+  var form = document.getElementById('image-upload-form');
+  if (!form) return;
+  var overlay = document.getElementById('image-upload-overlay');
+  var bar = document.getElementById('image-upload-bar');
+  var pct = document.getElementById('image-upload-pct');
+  var statusEl = document.getElementById('image-upload-status');
+  var submitBtn = form.querySelector('button[type="submit"]');
+  var dismissBtn = document.getElementById('image-upload-dismiss');
+
+  function hideOverlay() {
+    overlay.classList.add('hidden');
+    overlay.setAttribute('aria-hidden', 'true');
+    dismissBtn.classList.add('hidden');
+  }
+
+  dismissBtn.addEventListener('click', function () {
+    hideOverlay();
+  });
+
+  form.addEventListener('submit', function (e) {
+    if (form.dataset.uploading === '1') {
+      e.preventDefault();
+      return;
+    }
+    var fileInput = form.querySelector('input[type="file"]');
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+      return;
+    }
+    e.preventDefault();
+    form.dataset.uploading = '1';
+    submitBtn.disabled = true;
+    overlay.classList.remove('hidden');
+    overlay.setAttribute('aria-hidden', 'false');
+    dismissBtn.classList.add('hidden');
+    bar.style.width = '0%';
+    bar.classList.remove('bg-red-500');
+    bar.classList.add('bg-indigo-600');
+    pct.textContent = '0%';
+    statusEl.textContent = 'ブラウザからサーバーへ送信中…';
+
+    var fd = new FormData(form);
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', form.action, true);
+    xhr.setRequestHeader('X-Portal-Image-Upload', '1');
+
+    xhr.upload.addEventListener('progress', function (ev) {
+      if (ev.lengthComputable && ev.total > 0) {
+        var p = Math.round((ev.loaded / ev.total) * 100);
+        bar.style.width = p + '%';
+        pct.textContent = p + '%';
+      } else {
+        pct.textContent = '…';
+      }
+    });
+    xhr.upload.addEventListener('load', function () {
+      bar.style.width = '100%';
+      pct.textContent = '100%';
+      statusEl.textContent = 'サーバーで S3 保存・DB 登録中…';
+    });
+
+    xhr.addEventListener('load', function () {
+      var data = null;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch (_) {}
+
+      if (xhr.status >= 200 && xhr.status < 300 && data && data.redirect) {
+        statusEl.textContent = '完了しました。一覧を開きます…';
+        window.location.href = data.redirect;
+        return;
+      }
+
+      var msg = (data && data.message) ? data.message : 'アップロードに失敗しました。';
+      if (xhr.status === 0) {
+        msg = '通信が切断されました。';
+      }
+      statusEl.textContent = msg;
+      bar.classList.remove('bg-indigo-600');
+      bar.classList.add('bg-red-500');
+      submitBtn.disabled = false;
+      form.dataset.uploading = '0';
+      dismissBtn.classList.remove('hidden');
+    });
+
+    xhr.addEventListener('error', function () {
+      statusEl.textContent = '通信エラーが発生しました。';
+      bar.classList.remove('bg-indigo-600');
+      bar.classList.add('bg-red-500');
+      submitBtn.disabled = false;
+      form.dataset.uploading = '0';
+      dismissBtn.classList.remove('hidden');
+    });
+
+    xhr.send(fd);
+  });
+})();
+
+window.imageBulkDeleteConfirm = function () {
+  var n = document.querySelectorAll('.image-img-cb:checked').length;
+  if (n === 0) return false;
+  return confirm('選択した ' + n + ' 件の画像を削除しますか？\nDB と S3 のオブジェクトを削除します。');
+};
+(function () {
+  var root = document.querySelector('.js-image-gallery-root');
+  var all = document.getElementById('image-img-select-all');
+  var btn = document.getElementById('image-bulk-delete-btn');
+  if (!root || !all || !btn) return;
+
+  function visiblePanel() {
+    var p = root.querySelector('.js-image-tab-panel:not(.hidden)');
+    return p || root;
+  }
+
+  function visibleCheckboxes() {
+    var scope = visiblePanel();
+    return scope ? scope.querySelectorAll('.image-img-cb') : [];
+  }
+
+  function allCheckboxes() {
+    return root.querySelectorAll('.image-img-cb');
+  }
+
+  function sync() {
+    var cbs = visibleCheckboxes();
+    var arr = Array.prototype.slice.call(cbs);
+    var n = arr.filter(function (cb) { return cb.checked; }).length;
+    btn.disabled = n === 0;
+    var total = arr.length;
+    all.checked = n === total && total > 0;
+    all.indeterminate = n > 0 && n < total;
+  }
+
+  window.imageGallerySyncBulkUi = sync;
+
+  all.addEventListener('change', function () {
+    visibleCheckboxes().forEach(function (cb) { cb.checked = all.checked; });
+    sync();
+  });
+
+  root.addEventListener('change', function (ev) {
+    if (ev.target && ev.target.classList && ev.target.classList.contains('image-img-cb')) {
+      sync();
+    }
+  });
+
+  sync();
+})();
+
+(function () {
+  var wrap = document.querySelector('.js-image-folder-tabs');
+  if (!wrap) return;
+  var count = parseInt(wrap.getAttribute('data-image-tab-count') || '0', 10);
+  if (count < 2) return;
+
+  var buttons = wrap.querySelectorAll('.image-folder-tab[role="tab"]');
+  var panels = wrap.querySelectorAll('.js-image-tab-panel');
+
+  function clearAllChecks() {
+    wrap.querySelectorAll('.image-img-cb').forEach(function (cb) { cb.checked = false; });
+  }
+
+  var tabBase =
+    'image-folder-tab px-3 py-2 text-sm rounded-t-lg border border-b-0 -mb-px transition-colors';
+
+  function showPanel(panelId) {
+    panels.forEach(function (p) {
+      if (p.id === panelId) {
+        p.classList.remove('hidden');
+      } else {
+        p.classList.add('hidden');
+      }
+    });
+    buttons.forEach(function (b) {
+      var on = b.getAttribute('data-panel') === panelId;
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      var activeTone =
+        b.id === 'image-tab-original'
+          ? 'text-indigo-800'
+          : b.id === 'image-tab-stripped'
+            ? 'text-teal-800'
+            : 'text-gray-800';
+      b.className =
+        tabBase +
+        (on
+          ? ' border-gray-200 bg-white font-medium ' + activeTone
+          : ' border-transparent text-gray-500 hover:text-gray-800');
+    });
+    clearAllChecks();
+    if (typeof window.imageGallerySyncBulkUi === 'function') {
+      window.imageGallerySyncBulkUi();
+    }
+  }
+
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var id = b.getAttribute('data-panel');
+      if (id) showPanel(id);
+    });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

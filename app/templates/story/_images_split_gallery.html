@@ -1,0 +1,227 @@
+{# ストーリー紐づけ画像を「原本 / メタなし / 移行前」で分割表示（画像一覧ページと同様）。 #}
+{# include 時: gallery_story, gallery_images, gallery_redirect ('index'|'detail') #}
+{% set sid = gallery_story.id %}
+{% set images_original = gallery_images | selectattr('storage_folder', 'equalto', 'original') | list %}
+{% set images_stripped = gallery_images | selectattr('storage_folder', 'equalto', 'stripped') | list %}
+{% set images_text_overlay = gallery_images | selectattr('storage_folder', 'equalto', 'text_overlay') | list %}
+{% set images_legacy = gallery_images | rejectattr('storage_folder', 'equalto', 'original') | rejectattr('storage_folder', 'equalto', 'stripped') | rejectattr('storage_folder', 'equalto', 'text_overlay') | list %}
+{% set n_orig = images_original | length %}
+{% set n_str = images_stripped | length %}
+{% set n_cap = images_text_overlay | length %}
+{% set n_leg = images_legacy | length %}
+{% set n_total = gallery_images | length %}
+{% set tab_count = (1 if n_orig else 0) + (1 if n_str else 0) + (1 if n_cap else 0) + (1 if n_leg else 0) %}
+{% if n_orig %}{% set first_tab = 'original' %}
+{% elif n_str %}{% set first_tab = 'stripped' %}
+{% elif n_cap %}{% set first_tab = 'text_overlay' %}
+{% elif n_leg %}{% set first_tab = 'legacy' %}
+{% else %}{% set first_tab = '' %}
+{% endif %}
+
+{% if n_total > 0 %}
+<div class="js-story-gallery-root">
+  <p class="text-xs text-gray-500 mb-2">このストーリーの画像 <span class="font-mono text-gray-700">{{ n_total }}</span> 件
+    {% if gallery_redirect == 'index' %}（<a href="{{ url_for('story.detail', sid=sid) }}" class="text-indigo-600 hover:underline">詳細・章からの生成</a>）{% endif %}
+    · 内訳: 原本 {{ n_orig }} · メタなし {{ n_str }} · テキスト焼き増し {{ n_cap }} · 移行前 {{ n_leg }}
+    {% if gallery_redirect == 'detail' %}· <a href="{{ url_for('image.index', character_id=gallery_story.character_id, story_id=sid) }}" class="text-indigo-600 hover:underline">画像ページ</a>{% endif %}
+  </p>
+
+  {# チェックボックスは form= で紐づけたフォーム外にあるため、this 配下の querySelector では数えられない #}
+  <form id="story-images-bulk-form-{{ sid }}" method="post" action="{{ url_for('story.bulk_delete_story_images', sid=sid) }}" class="mb-3 flex flex-wrap items-center gap-3 text-xs" onsubmit="var f=this,r=f.closest&&f.closest('.js-story-gallery-root'),n=r?r.querySelectorAll('input[name=image_ids]:checked').length:f.querySelectorAll('input[name=image_ids]:checked').length;if(n===0)return false;return confirm('選択した '+n+' 件の画像を削除しますか？\nS3 にファイルがある場合はバケットからも削除されます。');">
+    {% if gallery_redirect == 'index' %}
+    <input type="hidden" name="redirect_target" value="story_index">
+    {% endif %}
+    <label class="inline-flex items-center gap-1.5 cursor-pointer text-gray-700 select-none">
+      <input type="checkbox" class="story-gallery-select-all rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+      表示中の一覧だけ全選択
+    </label>
+    <button type="submit" class="story-gallery-bulk-btn px-2.5 py-1 rounded-md bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed" disabled title="画像のチェックを付けると有効になります">選択を一括削除</button>
+  </form>
+
+  <div class="js-story-gallery-inner">
+    {% if tab_count >= 2 %}
+    <div class="js-story-folder-tabs flex flex-wrap gap-1 mb-3 border-b border-gray-200" role="tablist" aria-label="保存フォルダ別" data-tab-count="{{ tab_count }}">
+      {% if n_orig %}
+      <button type="button" role="tab" class="story-folder-tab px-3 py-1.5 text-xs rounded-t-lg border border-b-0 -mb-px transition-colors {% if first_tab == 'original' %}border-gray-200 bg-white text-indigo-800 font-medium{% else %}border-transparent text-gray-500 hover:text-gray-800{% endif %}" aria-selected="{{ 'true' if first_tab == 'original' else 'false' }}" data-story-panel="story-panel-{{ sid }}-original">原本（メタあり）<span class="text-gray-400 font-normal">· {{ n_orig }}</span></button>
+      {% endif %}
+      {% if n_str %}
+      <button type="button" role="tab" class="story-folder-tab px-3 py-1.5 text-xs rounded-t-lg border border-b-0 -mb-px transition-colors {% if first_tab == 'stripped' %}border-gray-200 bg-white text-teal-800 font-medium{% else %}border-transparent text-gray-500 hover:text-gray-800{% endif %}" aria-selected="{{ 'true' if first_tab == 'stripped' else 'false' }}" data-story-panel="story-panel-{{ sid }}-stripped">メタなし<span class="text-gray-400 font-normal">· {{ n_str }}</span></button>
+      {% endif %}
+      {% if n_cap %}
+      <button type="button" role="tab" class="story-folder-tab px-3 py-1.5 text-xs rounded-t-lg border border-b-0 -mb-px transition-colors {% if first_tab == 'text_overlay' %}border-gray-200 bg-white text-violet-900 font-medium{% else %}border-transparent text-gray-500 hover:text-gray-800{% endif %}" aria-selected="{{ 'true' if first_tab == 'text_overlay' else 'false' }}" data-story-panel="story-panel-{{ sid }}-text_overlay">焼き増し<span class="text-gray-400 font-normal">· {{ n_cap }}</span></button>
+      {% endif %}
+      {% if n_leg %}
+      <button type="button" role="tab" class="story-folder-tab px-3 py-1.5 text-xs rounded-t-lg border border-b-0 -mb-px transition-colors {% if first_tab == 'legacy' %}border-gray-200 bg-white text-gray-800 font-medium{% else %}border-transparent text-gray-500 hover:text-gray-800{% endif %}" aria-selected="{{ 'true' if first_tab == 'legacy' else 'false' }}" data-story-panel="story-panel-{{ sid }}-legacy">移行前<span class="text-gray-400 font-normal">· {{ n_leg }}</span></button>
+      {% endif %}
+    </div>
+    {% elif n_orig %}
+    <h4 id="story-heading-{{ sid }}-original" class="text-xs font-semibold text-indigo-900 mb-2">原本（メタデータあり）<span class="text-gray-500 font-normal">· {{ n_orig }} 枚</span></h4>
+    {% elif n_str %}
+    <h4 id="story-heading-{{ sid }}-stripped" class="text-xs font-semibold text-teal-900 mb-2">メタデータなし（配布用）<span class="text-gray-500 font-normal">· {{ n_str }} 枚</span></h4>
+    {% elif n_cap %}
+    <h4 id="story-heading-{{ sid }}-text_overlay" class="text-xs font-semibold text-violet-900 mb-2">テキスト焼き増し<span class="text-gray-500 font-normal">· {{ n_cap }} 枚</span></h4>
+    {% elif n_leg %}
+    <h4 id="story-heading-{{ sid }}-legacy" class="text-xs font-semibold text-gray-800 mb-2">移行前<span class="text-gray-500 font-normal">· {{ n_leg }} 枚</span></h4>
+    {% endif %}
+
+    {% if n_orig %}
+    <div id="story-panel-{{ sid }}-original" role="tabpanel" class="js-story-tab-panel mb-2 {% if first_tab != 'original' %}hidden{% endif %}">
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {% for img in images_original %}
+        <article class="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm relative text-sm">
+          <label class="absolute top-2 left-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded border border-gray-200 bg-white/95 shadow-sm" title="一括削除に含める">
+            <input type="checkbox" name="image_ids" value="{{ img.id }}" form="story-images-bulk-form-{{ sid }}" class="story-img-cb h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+          </label>
+          {% if img.s3_key %}
+          <a href="{{ url_for('image.preview', iid=img.id) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
+            <img src="{{ url_for('image.preview', iid=img.id) }}" alt="" class="w-full h-full object-contain" loading="lazy">
+          </a>
+          {% elif img.s3_url %}
+          <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">
+            <img src="{{ img.s3_url }}" alt="" class="w-full h-full object-contain" loading="lazy">
+          </a>
+          {% else %}
+          <div class="aspect-video bg-gray-100 flex items-center justify-center text-gray-400 text-xs">URL なし</div>
+          {% endif %}
+          <div class="p-2.5 text-xs">
+            <p class="font-medium truncate">{{ img.file_name }}</p>
+            <p class="text-gray-500 truncate">{{ img.character.name if img.character else '' }}</p>
+            <p class="text-indigo-700 mt-0.5">原本</p>
+            <div class="mt-1.5 flex flex-wrap gap-x-2 gap-y-0">
+              {% if img.s3_key %}
+              <a href="{{ url_for('image.download', iid=img.id) }}" class="text-indigo-600 hover:underline">DL</a>
+              {% endif %}
+              <form method="post" action="{{ url_for('story.delete_story_image', sid=sid, iid=img.id) }}" class="inline m-0" onsubmit="return confirm('この画像を削除しますか？');">
+                {% if gallery_redirect == 'index' %}<input type="hidden" name="redirect_target" value="story_index">{% endif %}
+                <button type="submit" class="text-red-600 hover:underline bg-transparent border-0 p-0 cursor-pointer text-xs">削除</button>
+              </form>
+            </div>
+            {% include 'story/_story_image_overlay_copy_form.html' %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if n_str %}
+    <div id="story-panel-{{ sid }}-stripped" role="tabpanel" class="js-story-tab-panel mb-2 {% if first_tab != 'stripped' %}hidden{% endif %}">
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {% for img in images_stripped %}
+        <article class="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm relative text-sm">
+          <label class="absolute top-2 left-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded border border-gray-200 bg-white/95 shadow-sm" title="一括削除に含める">
+            <input type="checkbox" name="image_ids" value="{{ img.id }}" form="story-images-bulk-form-{{ sid }}" class="story-img-cb h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+          </label>
+          {% if img.s3_key %}
+          <a href="{{ url_for('image.preview', iid=img.id) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
+            <img src="{{ url_for('image.preview', iid=img.id) }}" alt="" class="w-full h-full object-contain" loading="lazy">
+          </a>
+          {% elif img.s3_url %}
+          <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">
+            <img src="{{ img.s3_url }}" alt="" class="w-full h-full object-contain" loading="lazy">
+          </a>
+          {% else %}
+          <div class="aspect-video bg-gray-100 flex items-center justify-center text-gray-400 text-xs">URL なし</div>
+          {% endif %}
+          <div class="p-2.5 text-xs">
+            <p class="font-medium truncate">{{ img.file_name }}</p>
+            <p class="text-gray-500 truncate">{{ img.character.name if img.character else '' }}</p>
+            <p class="text-teal-700 mt-0.5">メタなし</p>
+            <div class="mt-1.5 flex flex-wrap gap-x-2 gap-y-0">
+              {% if img.s3_key %}
+              <a href="{{ url_for('image.download', iid=img.id) }}" class="text-indigo-600 hover:underline">DL</a>
+              {% endif %}
+              <form method="post" action="{{ url_for('story.delete_story_image', sid=sid, iid=img.id) }}" class="inline m-0" onsubmit="return confirm('この画像を削除しますか？');">
+                {% if gallery_redirect == 'index' %}<input type="hidden" name="redirect_target" value="story_index">{% endif %}
+                <button type="submit" class="text-red-600 hover:underline bg-transparent border-0 p-0 cursor-pointer text-xs">削除</button>
+              </form>
+            </div>
+            {% include 'story/_story_image_overlay_copy_form.html' %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if n_cap %}
+    <div id="story-panel-{{ sid }}-text_overlay" role="tabpanel" class="js-story-tab-panel mb-2 {% if first_tab != 'text_overlay' %}hidden{% endif %}">
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {% for img in images_text_overlay %}
+        <article class="bg-white rounded-lg border border-violet-100 overflow-hidden shadow-sm relative text-sm">
+          <label class="absolute top-2 left-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded border border-gray-200 bg-white/95 shadow-sm" title="一括削除に含める">
+            <input type="checkbox" name="image_ids" value="{{ img.id }}" form="story-images-bulk-form-{{ sid }}" class="story-img-cb h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+          </label>
+          {% if img.s3_key %}
+          <a href="{{ url_for('image.preview', iid=img.id) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
+            <img src="{{ url_for('image.preview', iid=img.id) }}" alt="" class="w-full h-full object-contain" loading="lazy">
+          </a>
+          {% elif img.s3_url %}
+          <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">
+            <img src="{{ img.s3_url }}" alt="" class="w-full h-full object-contain" loading="lazy">
+          </a>
+          {% else %}
+          <div class="aspect-video bg-gray-100 flex items-center justify-center text-gray-400 text-xs">URL なし</div>
+          {% endif %}
+          <div class="p-2.5 text-xs">
+            <p class="font-medium truncate">{{ img.file_name }}</p>
+            <p class="text-gray-500 truncate">{{ img.character.name if img.character else '' }}</p>
+            <p class="text-violet-800 mt-0.5">テキスト焼き増し</p>
+            <div class="mt-1.5 flex flex-wrap gap-x-2 gap-y-0">
+              {% if img.s3_key %}
+              <a href="{{ url_for('image.download', iid=img.id) }}" class="text-indigo-600 hover:underline">DL</a>
+              {% endif %}
+              <form method="post" action="{{ url_for('story.delete_story_image', sid=sid, iid=img.id) }}" class="inline m-0" onsubmit="return confirm('この画像を削除しますか？');">
+                {% if gallery_redirect == 'index' %}<input type="hidden" name="redirect_target" value="story_index">{% endif %}
+                <button type="submit" class="text-red-600 hover:underline bg-transparent border-0 p-0 cursor-pointer text-xs">削除</button>
+              </form>
+            </div>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if n_leg %}
+    <div id="story-panel-{{ sid }}-legacy" role="tabpanel" class="js-story-tab-panel mb-2 {% if first_tab != 'legacy' %}hidden{% endif %}">
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {% for img in images_legacy %}
+        <article class="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm relative text-sm">
+          <label class="absolute top-2 left-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded border border-gray-200 bg-white/95 shadow-sm" title="一括削除に含める">
+            <input type="checkbox" name="image_ids" value="{{ img.id }}" form="story-images-bulk-form-{{ sid }}" class="story-img-cb h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+          </label>
+          {% if img.s3_key %}
+          <a href="{{ url_for('image.preview', iid=img.id) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
+            <img src="{{ url_for('image.preview', iid=img.id) }}" alt="" class="w-full h-full object-contain" loading="lazy">
+          </a>
+          {% elif img.s3_url %}
+          <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">
+            <img src="{{ img.s3_url }}" alt="" class="w-full h-full object-contain" loading="lazy">
+          </a>
+          {% else %}
+          <div class="aspect-video bg-gray-100 flex items-center justify-center text-gray-400 text-xs">URL なし</div>
+          {% endif %}
+          <div class="p-2.5 text-xs">
+            <p class="font-medium truncate">{{ img.file_name }}</p>
+            <p class="text-gray-500 truncate">{{ img.character.name if img.character else '' }}</p>
+            <p class="text-gray-500 mt-0.5">移行前</p>
+            <div class="mt-1.5 flex flex-wrap gap-x-2 gap-y-0">
+              {% if img.s3_key %}
+              <a href="{{ url_for('image.download', iid=img.id) }}" class="text-indigo-600 hover:underline">DL</a>
+              {% endif %}
+              <form method="post" action="{{ url_for('story.delete_story_image', sid=sid, iid=img.id) }}" class="inline m-0" onsubmit="return confirm('この画像を削除しますか？');">
+                {% if gallery_redirect == 'index' %}<input type="hidden" name="redirect_target" value="story_index">{% endif %}
+                <button type="submit" class="text-red-600 hover:underline bg-transparent border-0 p-0 cursor-pointer text-xs">削除</button>
+              </form>
+            </div>
+            {% include 'story/_story_image_overlay_copy_form.html' %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

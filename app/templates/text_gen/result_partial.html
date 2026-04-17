@@ -1,0 +1,45 @@
+{# result: dict, platform: str #}
+<div class="space-y-4">
+  {% if platform == 'pixiv' %}
+    <div>
+      <p class="text-xs text-gray-500">タイトル</p>
+      <p id="tg-title" class="font-medium">{{ result.title }}</p>
+      <button type="button" onclick="copyText('tg-title')" class="text-xs text-indigo-600 hover:underline mt-1">コピー</button>
+    </div>
+    <div>
+      <p class="text-xs text-gray-500">キャプション</p>
+      <pre id="tg-cap" class="text-sm whitespace-pre-wrap bg-gray-50 border rounded p-2 mt-1">{{ result.caption }}</pre>
+      <button type="button" onclick="copyText('tg-cap')" class="text-xs text-indigo-600 hover:underline mt-1">コピー</button>
+    </div>
+    <div>
+      <p class="text-xs text-gray-500">タグ</p>
+      <pre id="tg-tags" class="text-xs bg-gray-50 border rounded p-2 mt-1">{{ result.tags | join(', ') if result.tags else '' }}</pre>
+      <button type="button" onclick="copyText('tg-tags')" class="text-xs text-indigo-600 hover:underline mt-1">コピー</button>
+    </div>
+  {% elif platform == 'dlsite' %}
+    <div class="grid gap-3 text-sm">
+      <div><span class="text-gray-500 text-xs">タイトル</span><p id="dl-t" class="font-medium">{{ result.title }}</p><button type="button" onclick="copyText('dl-t')" class="text-xs text-indigo-600">コピー</button></div>
+      <div><span class="text-gray-500 text-xs">ジャンル</span><p id="dl-g">{{ result.genre }}</p><button type="button" onclick="copyText('dl-g')" class="text-xs text-indigo-600">コピー</button></div>
+      <div><span class="text-gray-500 text-xs">概要</span><pre id="dl-o" class="bg-gray-50 border rounded p-2 mt-1 whitespace-pre-wrap">{{ result.overview }}</pre><button type="button" onclick="copyText('dl-o')" class="text-xs text-indigo-600">コピー</button></div>
+      <div><span class="text-gray-500 text-xs">詳細</span><pre id="dl-d" class="bg-gray-50 border rounded p-2 mt-1 whitespace-pre-wrap">{{ result.description }}</pre><button type="button" onclick="copyText('dl-d')" class="text-xs text-indigo-600">コピー</button></div>
+      <div><span class="text-gray-500 text-xs">タグ</span><pre id="dl-tags" class="text-xs bg-gray-50 border rounded p-2 mt-1">{{ result.tags | join(', ') if result.tags else '' }}</pre><button type="button" onclick="copyText('dl-tags')" class="text-xs text-indigo-600">コピー</button></div>
+      <div><span class="text-gray-500 text-xs">年齢区分</span><p id="dl-a">{{ result.age_rating }}</p><button type="button" onclick="copyText('dl-a')" class="text-xs text-indigo-600">コピー</button></div>
+    </div>
+  {% else %}
+    <div>
+      <p class="text-xs text-gray-500">タイトル</p>
+      <p id="ps-t" class="font-medium">{{ result.title }}</p>
+      <button type="button" onclick="copyText('ps-t')" class="text-xs text-indigo-600 hover:underline mt-1">コピー</button>
+    </div>
+    <div>
+      <p class="text-xs text-gray-500">説明</p>
+      <pre id="ps-d" class="text-sm whitespace-pre-wrap bg-gray-50 border rounded p-2 mt-1">{{ result.description }}</pre>
+      <button type="button" onclick="copyText('ps-d')" class="text-xs text-indigo-600 hover:underline mt-1">コピー</button>
+    </div>
+    <div>
+      <p class="text-xs text-gray-500">タグ</p>
+      <pre id="ps-tags" class="text-xs bg-gray-50 border rounded p-2 mt-1">{{ result.tags | join(', ') if result.tags else '' }}</pre>
+      <button type="button" onclick="copyText('ps-tags')" class="text-xs text-indigo-600 hover:underline mt-1">コピー</button>
+    </div>
+  {% endif %}
+</div>

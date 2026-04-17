@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{% if character %}編集{% else %}新規{% endif %} — キャラクター{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">{% if character %}キャラクター編集{% else %}キャラクター新規{% endif %}</h1>
+
+<form method="post" class="max-w-xl space-y-4 bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+  <div>
+    <label class="block text-sm font-medium text-gray-700 mb-1">名前 *</label>
+    <input name="name" required value="{{ character.name if character else '' }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+  </div>
+  <div>
+    <label class="block text-sm font-medium text-gray-700 mb-1">タグ（カンマ区切り）</label>
+    <input name="tags" value="{{ character.tags if character and character.tags else '' }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="1girl, silver hair, ...">
+  </div>
+  <div>
+    <label class="block text-sm font-medium text-gray-700 mb-1">SD モデル</label>
+    <input name="sd_model" value="{{ character.sd_model if character and character.sd_model else '' }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+  </div>
+  <div class="grid sm:grid-cols-2 gap-4">
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">LoRA 名</label>
+      <input name="lora_name" value="{{ character.lora_name if character and character.lora_name else '' }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">LoRA ウェイト</label>
+      <input name="lora_weight" type="number" step="0.05" value="{{ character.lora_weight if character else 0.8 }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+    </div>
+  </div>
+  <div class="grid sm:grid-cols-2 gap-4">
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">絵文字</label>
+      <input name="emoji" value="{{ character.emoji if character else '🎨' }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">UI カラー</label>
+      <input name="color" value="{{ character.color if character else 'purple' }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="purple">
+    </div>
+  </div>
+  <div>
+    <label class="block text-sm font-medium text-gray-700 mb-1">メモ</label>
+    <textarea name="notes" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">{{ character.notes if character and character.notes else '' }}</textarea>
+  </div>
+  <div class="flex gap-3">
+    <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">保存</button>
+    <a href="{{ url_for('character.index') }}" class="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">戻る</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}インフラコンソール — EC2{% endblock %}
+{% block content %}
+<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+  <div>
+    <a href="{{ url_for('dashboard.index') }}" class="text-sm text-indigo-600 hover:underline">← ダッシュボード</a>
+    <h1 class="text-2xl font-bold text-gray-900 mt-2">インフラコンソール</h1>
+    <p class="text-xs text-gray-500 mt-1">対象: <code class="bg-gray-100 px-1 rounded text-xs">{{ instance_id or '（未設定）' }}</code> · リージョン <code class="bg-gray-100 px-1 rounded text-xs">{{ region }}</code></p>
+  </div>
+  {% if not ops_no_password %}
+  <form method="post" action="{{ url_for('ops.logout') }}" class="m-0">
+    <button type="submit" class="text-sm text-gray-600 hover:text-gray-900 underline">ログアウト</button>
+  </form>
+  {% else %}
+  <p class="text-xs text-gray-500">ローカル無認証モード（<code class="bg-gray-100 px-0.5 rounded">OPS_CONSOLE_NO_PASSWORD</code>）</p>
+  {% endif %}
+</div>
+
+<section class="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-950 leading-relaxed">
+  {% if ops_no_password %}
+  <p class="mb-2 font-medium text-red-900">本番・共有サーバでは <code class="bg-amber-100/80 px-0.5 rounded">OPS_CONSOLE_NO_PASSWORD</code> を無効にし、<code class="bg-amber-100/80 px-0.5 rounded">OPS_CONSOLE_TOKEN</code> を使ってください。</p>
+  {% endif %}
+  <strong>注意:</strong> 起動・停止は課金・GPU 利用に直結します。SSM 再起動は Terraform の <code class="bg-amber-100/80 px-0.5 rounded">sd-webui.service</code> 前提です（ユニット名を変えている場合はコードの調整が必要です）。
+  ポータルが動く IAM ユーザー／ロールに、少なくとも <code class="bg-amber-100/80 px-0.5 rounded">ec2:DescribeInstances</code>、<code class="bg-amber-100/80 px-0.5 rounded">ec2:StartInstances</code>、<code class="bg-amber-100/80 px-0.5 rounded">ec2:StopInstances</code>、および SSM 用に <code class="bg-amber-100/80 px-0.5 rounded">ssm:SendCommand</code> などが付いているか確認してください。参考金額（USD）を出す場合は <code class="bg-amber-100/80 px-0.5 rounded">pricing:GetProducts</code> も必要です。
+</section>
+
+{% if config_error %}
+<p class="mt-4 text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{{ config_error }}</p>
+{% endif %}
+
+{% if instance_info %}
+<section class="mt-6 p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
+  <h2 class="text-sm font-semibold text-gray-800 mb-3">インスタンス状態</h2>
+  <dl class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+    <div><dt class="text-xs text-gray-500">状態</dt><dd class="font-medium">{{ instance_info.state }}</dd></div>
+    <div><dt class="text-xs text-gray-500">インスタンスタイプ</dt><dd class="font-mono text-xs">{{ instance_info.instance_type or '—' }}{% if instance_info.is_spot %} <span class="text-amber-700">(Spot)</span>{% endif %}</dd></div>
+    <div><dt class="text-xs text-gray-500">Name タグ</dt><dd class="font-mono text-xs">{{ instance_info.name or '—' }}</dd></div>
+    <div><dt class="text-xs text-gray-500">起動時刻（LaunchTime）</dt><dd class="font-mono text-xs">{{ instance_info.launch_time_display }}</dd></div>
+    {% if instance_info.state == 'running' %}
+    <div class="sm:col-span-2"><dt class="text-xs text-gray-500">起動からの経過（目安）</dt><dd class="font-medium text-indigo-800">{{ instance_info.uptime_human }}</dd></div>
+    {% endif %}
+    <div><dt class="text-xs text-gray-500">パブリック IP</dt><dd class="font-mono text-xs">{{ instance_info.public_ip or '—' }}</dd></div>
+    <div><dt class="text-xs text-gray-500">プライベート IP</dt><dd class="font-mono text-xs">{{ instance_info.private_ip or '—' }}</dd></div>
+  </dl>
+
+  <div class="mt-6 p-4 rounded-xl border text-sm
+    {% if instance_info.billing_tone == 'running' %}bg-red-50 border-red-200 text-red-950
+    {% elif instance_info.billing_tone == 'stopped' %}bg-emerald-50 border-emerald-200 text-emerald-950
+    {% elif instance_info.billing_tone == 'transition' %}bg-amber-50 border-amber-200 text-amber-950
+    {% else %}bg-gray-50 border-gray-200 text-gray-800{% endif %}">
+    <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1">課金の目安（稼働状態ベース）</h3>
+    <p class="font-medium leading-snug">{{ instance_info.billing_title }}</p>
+    <ul class="mt-2 text-xs leading-relaxed list-disc pl-4 space-y-1">
+      {% for line in instance_info.billing_lines %}
+      <li>{{ line }}</li>
+      {% endfor %}
+    </ul>
+    {% if instance_info.state == 'running' %}
+    <div class="mt-3 pt-3 border-t border-black/5 text-xs leading-relaxed">
+      <p class="font-medium text-gray-800">参考金額（Linux オンデマンドの公開単価）</p>
+      {% if instance_info.pricing_error %}
+      <p class="mt-1 text-amber-900">料率の取得に失敗しました: {{ instance_info.pricing_error }}</p>
+      <p class="mt-1 text-[11px] text-gray-600">IAM に <code class="bg-white/60 px-0.5 rounded">pricing:GetProducts</code> を付与するか、リージョンが料金マップ対象か確認してください。</p>
+      {% elif instance_info.estimated_ondemand_hourly_usd is defined %}
+      <ul class="mt-2 space-y-1 list-disc pl-4 text-gray-800">
+        <li>時間単価（USD）: 約 <strong>${{ "%.4f"|format(instance_info.estimated_ondemand_hourly_usd) }}</strong> / 時間</li>
+        <li>今回の起動からの目安（USD）: 約 <strong>${{ "%.4f"|format(instance_info.estimated_session_usd) }}</strong>（経過時間 × 上記単価）</li>
+        {% if instance_info.estimated_hourly_jpy is defined %}
+        <li>時間単価（円・表示レート）: 約 <strong>¥{{ instance_info.estimated_hourly_jpy }}</strong> / 時間</li>
+        <li>今回の起動からの目安（円）: 約 <strong>¥{{ instance_info.estimated_session_jpy }}</strong></li>
+        {% endif %}
+      </ul>
+      {% if instance_info.pricing_spot_note %}
+      <p class="mt-2 text-[11px] text-amber-900">{{ instance_info.pricing_spot_note }}</p>
+      {% endif %}
+      {% if instance_info.pricing_source %}
+      <p class="mt-2 text-[11px] text-gray-600">{{ instance_info.pricing_source }}</p>
+      {% endif %}
+      {% else %}
+      <p class="mt-1 text-gray-600">この起動では料率の目安を計算できません（インスタンスタイプや経過時間の取得が不足している可能性があります）。</p>
+      {% endif %}
+    </div>
+    {% endif %}
+    <p class="mt-3 text-[11px] text-gray-600">金額の確定値は <strong>AWS Billing / Cost Explorer</strong> を参照してください。この画面は API の状態と公開料金から<strong>目安</strong>を表示しています。</p>
+  </div>
+
+  <div class="mt-6 flex flex-wrap gap-3">
+    <form method="post" action="{{ url_for('ops.ec2_action') }}" class="inline" onsubmit="return confirm('この EC2 を起動しますか？');">
+      <input type="hidden" name="action" value="start">
+      <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-40" {% if instance_info.state != 'stopped' %}disabled{% endif %}>起動</button>
+    </form>
+    <form method="post" action="{{ url_for('ops.ec2_action') }}" class="inline" onsubmit="return confirm('この EC2 を停止しますか？（Web UI も止まります）');">
+      <input type="hidden" name="action" value="stop">
+      <button type="submit" class="px-4 py-2 rounded-lg bg-orange-600 text-white text-sm font-medium hover:bg-orange-700 disabled:opacity-40" {% if instance_info.state != 'running' %}disabled{% endif %}>停止</button>
+    </form>
+    <form method="post" action="{{ url_for('ops.ec2_action') }}" class="inline" onsubmit="return confirm('sd-webui.service を systemctl restart しますか？（SSM / running のみ）');">
+      <input type="hidden" name="action" value="restart_sd">
+      <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-40" {% if instance_info.state != 'running' %}disabled{% endif %}>Stable Diffusion 再起動（SSM）</button>
+    </form>
+  </div>
+  <p class="text-xs text-gray-500 mt-4">停止中は SSM も届かないため、再起動ボタンは無効です。先に起動してください。</p>
+</section>
+{% elif instance_id %}
+<p class="mt-4 text-sm text-gray-600">上記エラーを解消すると、ここに状態が表示されます。</p>
+{% endif %}
+{% endblock %}

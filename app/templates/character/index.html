@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}キャラクター — Creator Portal{% endblock %}
+{% block content %}
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+  <h1 class="text-2xl font-bold">キャラクター</h1>
+  <a href="{{ url_for('character.new') }}" class="inline-flex justify-center px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">新規登録</a>
+</div>
+
+{% if characters %}
+<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+  {% for c in characters %}
+  <article class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+    <div class="flex items-start justify-between gap-2">
+      <div>
+        <span class="text-xl mr-1">{{ c.emoji }}</span>
+        <span class="font-semibold">{{ c.name }}</span>
+      </div>
+      <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{{ c.color }}</span>
+    </div>
+    {% if c.tags %}
+    <p class="text-xs text-gray-500 mt-2 line-clamp-2">{{ c.tags }}</p>
+    {% endif %}
+    <div class="mt-3 flex flex-wrap gap-2">
+      <a href="{{ url_for('character.edit', cid=c.id) }}" class="text-sm text-indigo-600 hover:underline">編集</a>
+      <form method="post" action="{{ url_for('character.delete', cid=c.id) }}" class="inline" onsubmit="return confirm('削除しますか？');">
+        <button type="submit" class="text-sm text-red-600 hover:underline">削除</button>
+      </form>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-gray-600">キャラクターがまだありません。</p>
+{% endif %}
+{% endblock %}
