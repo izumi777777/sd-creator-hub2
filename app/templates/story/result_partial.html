@@ -130,7 +130,9 @@
     </form>
   </div>
 
-  <form method="post" action="{% if story_id %}{{ url_for('story.save_as_new', sid=story_id) }}{% else %}{{ url_for('story.save') }}{% endif %}" class="border-t border-gray-200 pt-4 space-y-3">
+  <form method="post" action="{% if story_id %}{{ url_for('story.save_as_new', sid=story_id) }}{% else %}{{ url_for('story.save') }}{% endif %}" class="border-t border-gray-200 pt-4 space-y-3"
+        data-loading-overlay="💾 ストーリーを保存しています..."
+        data-loading-sub="章データ・プロンプトをすべて保存します。このままお待ちください。">
     <input type="hidden" name="character_id" value="{{ character.id }}">
     <input type="hidden" name="title" value="{{ story.title }}">
     <input type="hidden" name="overview" value="{{ story.overview }}">

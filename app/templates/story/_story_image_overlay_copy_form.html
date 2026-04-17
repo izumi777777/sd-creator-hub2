@@ -1,6 +1,9 @@
 {# include: sid, img, gallery_redirect #}
 {% if img.s3_key and img.storage_folder != 'text_overlay' %}
-<form method="post" action="{{ url_for('story.create_story_image_text_overlay', sid=sid, iid=img.id) }}" class="mt-2 pt-2 border-t border-dashed border-violet-100 space-y-1" onsubmit="return confirm('元画像は残したまま、テキスト入りの新しい画像を S3 に追加します。よろしいですか？');">
+<form method="post" action="{{ url_for('story.create_story_image_text_overlay', sid=sid, iid=img.id) }}" class="mt-2 pt-2 border-t border-dashed border-violet-100 space-y-1"
+      data-loading-overlay="✍️ テキストを合成して S3 に保存しています..."
+      data-loading-sub="処理に数秒かかることがあります。このままお待ちください。"
+      onsubmit="return confirm('元画像は残したまま、テキスト入りの新しい画像を S3 に追加します。よろしいですか？');">
   {% if gallery_redirect == 'index' %}<input type="hidden" name="redirect_target" value="story_index">{% endif %}
   <p class="text-[11px] font-medium text-violet-900">テキスト焼き増し（別ファイル）</p>
   <p class="text-[10px] text-gray-500 leading-snug">任意で<strong>上段</strong>（シーンのストーリー）・<strong>見出し（title）</strong>・<strong>セリフ</strong>を選べます。下段はシーン／ストーリーのプリセット（シーン優先）または章の speech。シーン番号を入れるとそのシーンの10枠が使われます。<code class="bg-violet-50 px-0.5 rounded">text_overlay</code> に保存します。</p>

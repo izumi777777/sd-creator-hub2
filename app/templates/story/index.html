@@ -146,7 +146,7 @@
         </a>
         <span class="text-gray-400 text-xs whitespace-nowrap shrink-0">{{ s.created_at.strftime('%Y-%m-%d') if s.created_at else '' }}</span>
         <form method="post" action="{{ url_for('story.delete', sid=s.id) }}" class="inline shrink-0 m-0" onsubmit="return confirm('削除しますか？');">
-          <button type="submit" class="text-red-600 text-xs hover:underline">削除</button>
+          <button type="submit" class="text-red-600 text-xs hover:underline" data-no-loading>削除</button>
         </form>
       </div>
       {% if images_by_story.get(s.id) %}

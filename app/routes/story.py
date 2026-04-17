@@ -206,14 +206,14 @@ def _persist_sd_schedule_session(sid: int, ch_no: int, variant_index: int | None
 
 
 def _maybe_persist_generate_form(sid: int) -> None:
-    ch_no = request.form.get("ch_no", type=int)
+    ch_no = _parse_ch_no_form()
     if not ch_no or ch_no < 1:
         return
     _persist_sd_generate_session(sid, ch_no, _parse_variant_index_form())
 
 
 def _maybe_persist_schedule_form(sid: int) -> None:
-    ch_no = request.form.get("ch_no", type=int)
+    ch_no = _parse_ch_no_form()
     if not ch_no or ch_no < 1:
         return
     _persist_sd_schedule_session(sid, ch_no, _parse_variant_index_form())
@@ -312,6 +312,38 @@ def _source_character_id_for_story(story_id: int | None) -> int | None:
         return None
     srow = Story.query.get(story_id)
     return srow.character_id if srow else None
+
+
+def _renumber_chapters(chapters: list) -> list:
+    """章の no を 1 始まりの連番整数に振り直す。
+    Gemini が 2.5 のような小数 no を返すことがあるため、
+    保存前に必ず呼び出して整数に正規化する。
+    """
+    for i, ch in enumerate(chapters):
+        if isinstance(ch, dict):
+            ch["no"] = i + 1
+    return chapters
+
+
+def _chapters_store_with_renumbered_nos(chapters_store: str) -> str:
+    """検証済み chapters_json 文字列の各章 no を連番整数にして返す。"""
+    try:
+        lst = json.loads(chapters_store)
+        if isinstance(lst, list):
+            _renumber_chapters(lst)
+            return json.dumps(lst, ensure_ascii=False)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return chapters_store
+
+
+def _parse_ch_no_form() -> int | None:
+    """フォームの ch_no を解釈する。小数文字列（例: 2.5）も int に落とせる。"""
+    _ch_no_raw = request.form.get("ch_no") or ""
+    try:
+        return int(float(_ch_no_raw)) if _ch_no_raw.strip() else None
+    except (ValueError, TypeError):
+        return None
 
 
 def _parse_chapters_form(raw: str) -> tuple[str | None, str]:
@@ -567,6 +599,8 @@ def save():
         logger.info("story.save: 章 JSON 検証で中止: %s", err[:200])
         flash(err, "error")
         return redirect(url_for("story.index"))
+
+    chapters_store = _chapters_store_with_renumbered_nos(chapters_store)
 
     prompt_basis = (request.form.get("prompt_basis") or "").strip() or None
 
@@ -854,6 +888,8 @@ def save_as_new(sid: int):
         flash(err, "error")
         return redirect(url_for("story.detail", sid=sid))
 
+    chapters_store = _chapters_store_with_renumbered_nos(chapters_store)
+
     new_story = Story(
         character_id=character_id,
         title=title,
@@ -937,6 +973,8 @@ def update(sid: int):
         logger.info("story.update: 章 JSON 検証で中止 sid=%s: %s", sid, err[:200])
         flash(err, "error")
         return redirect(url_for("story.detail", sid=sid))
+
+    chapters_store = _chapters_store_with_renumbered_nos(chapters_store)
 
     story.title = title
     story.overview = overview or None
@@ -1042,7 +1080,7 @@ def _set_optional_speech(target: dict, speech: str) -> None:
 def update_chapter_prompts(sid: int):
     """シーン単位で Positive / Negative（とパターン名・任意のセリフ）を編集して保存。"""
     story = Story.query.get_or_404(sid)
-    ch_no = request.form.get("ch_no", type=int)
+    ch_no = _parse_ch_no_form()
     logger.info(
         "story.update_chapter_prompts: シーン別プロンプト保存 sid=%s ch_no=%s variant_raw=%r",
         sid,
@@ -1137,6 +1175,7 @@ def update_chapters(sid: int):
     if err:
         flash(err, "error")
         return redirect(url_for("story.detail", sid=sid))
+    chapters_store = _chapters_store_with_renumbered_nos(chapters_store)
     story.chapters_json = chapters_store
     db.session.commit()
     logger.info("story.update_chapters: DB コミット完了 sid=%s", sid)
@@ -1148,7 +1187,7 @@ def update_chapters(sid: int):
 def append_chapter_variant(sid: int):
     """指定シーンに prompt_variants を 1 件追加（JSON を開かずに追記する用）。"""
     story = Story.query.get_or_404(sid)
-    ch_no = request.form.get("ch_no", type=int)
+    ch_no = _parse_ch_no_form()
     label = (request.form.get("variant_label") or "").strip() or "SD で調整したパターン"
     prompt = (request.form.get("variant_prompt") or "").strip()
     neg = (request.form.get("variant_neg") or "").strip()
@@ -1212,7 +1251,7 @@ def schedule_chapter_image(sid: int):
     """指定日時に章画像生成を実行するよう DB に予約する。"""
     story = Story.query.get_or_404(sid)
     character = story.character or Character.query.get_or_404(story.character_id)
-    ch_no = request.form.get("ch_no", type=int)
+    ch_no = _parse_ch_no_form()
     variant_index = _parse_variant_index_form()
     steps = request.form.get("steps", type=int) or 20
     width = request.form.get("width", type=int) or 512
@@ -1334,7 +1373,7 @@ def update_speech_presets(sid: int):
 def update_chapter_speech_presets(sid: int):
     """シーン単位のセリフプリセット10枠を chapters_json に保存する。"""
     story = Story.query.get_or_404(sid)
-    ch_no = request.form.get("ch_no", type=int)
+    ch_no = _parse_ch_no_form()
     if not ch_no or ch_no < 1:
         flash("シーン番号が不正です。", "error")
         return redirect(url_for("story.detail", sid=sid))
@@ -1374,7 +1413,7 @@ def create_story_image_text_overlay(sid: int, iid: int):
     if img.story_id != sid:
         flash("このストーリーに紐づいていない画像です。", "error")
         return _redirect_after_story_image_op(sid)
-    ch_no = request.form.get("ch_no", type=int)
+    ch_no = _parse_ch_no_form()
     raw_vi = (request.form.get("variant_index") or "").strip()
     if raw_vi == "":
         variant_index: int | None = None
@@ -1537,7 +1576,7 @@ def generate_chapter_image(sid: int):
         sid,
         request.form.get("ch_no"),
     )
-    ch_no = request.form.get("ch_no", type=int)
+    ch_no = _parse_ch_no_form()
     variant_index = _parse_variant_index_form()
     steps = request.form.get("steps", type=int) or 20
     width = request.form.get("width", type=int) or 512

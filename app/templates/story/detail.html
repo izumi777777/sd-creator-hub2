@@ -133,7 +133,7 @@
           <td class="px-2 py-2">
             {% if j.status == 'pending' %}
             <form method="post" action="{{ url_for('story.cancel_scheduled_job', sid=story.id, jid=j.id) }}" class="inline" onsubmit="return confirm('この予約を取り消しますか？');">
-              <button type="submit" class="text-indigo-600 hover:underline">取消</button>
+              <button type="submit" class="text-indigo-600 hover:underline" data-no-loading>取消</button>
             </form>
             {% endif %}
           </td>
@@ -161,7 +161,8 @@
     <p id="pixiv-parse-err" class="text-red-600 text-sm mt-2 hidden"></p>
   </div>
 
-  <form method="post" action="{{ url_for('story.save_pixiv_post', sid=story.id) }}" class="space-y-3">
+  <form method="post" action="{{ url_for('story.save_pixiv_post', sid=story.id) }}" class="space-y-3"
+        data-loading-overlay="💾 Pixiv 投稿文案を保存しています...">
     <div>
       <label class="block text-xs font-medium text-gray-600 mb-1">投稿タイトル（Pixiv 用・1 行）</label>
       <input type="text" name="pixiv_post_title" value="{{ story.pixiv_post_title or '' }}" maxlength="500" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="「…」形式の候補があれば自動で入ります">
@@ -402,7 +403,7 @@
 <div class="space-y-4">
   {% for ch in chapters %}
   {% set ch_loop = loop %}
-  {% set ch_no_val = ch.no if ch.no is not none else ch_loop.index %}
+  {% set ch_no_val = (ch.no | int) if ch.no is not none else ch_loop.index %}
   <article class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
     <p class="text-sm text-gray-500">シーン {{ ch_no_val }}</p>
     <h3 class="font-medium">{{ ch.title }}</h3>

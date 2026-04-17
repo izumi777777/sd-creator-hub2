@@ -88,9 +88,138 @@
       background-color: rgb(51 65 85) !important;
       color: rgb(226 232 240) !important;
     }
+
+    /* ============================================================
+       Portal Loading UI
+       ============================================================ */
+
+    /* ① トップバー */
+    #portal-top-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      width: 0%;
+      background: linear-gradient(to right, #6366f1, #8b5cf6, #a855f7);
+      z-index: 10000;
+      transition: width 0.25s ease-out, opacity 0.4s ease;
+      opacity: 0;
+      pointer-events: none;
+    }
+    #portal-top-bar.is-running {
+      opacity: 1;
+    }
+    #portal-top-bar.is-done {
+      width: 100% !important;
+      opacity: 0;
+      transition: width 0.1s ease-out, opacity 0.5s ease 0.1s;
+    }
+
+    /* ② ボタンスピナー */
+    @keyframes portal-btn-spin {
+      to { transform: translate(-50%, -50%) rotate(360deg); }
+    }
+    .portal-btn-loading {
+      position: relative;
+      color: transparent !important;
+      pointer-events: none;
+    }
+    .portal-btn-loading::after {
+      content: '';
+      position: absolute;
+      width: 1em;
+      height: 1em;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(0deg);
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: portal-btn-spin 0.6s linear infinite;
+      color: white;
+    }
+    /* 赤・グレー系ボタンはスピナー色を合わせる */
+    .portal-btn-loading.text-red-600::after,
+    .portal-btn-loading.text-gray-600::after {
+      color: currentColor;
+    }
+
+    /* ③ グローバルオーバーレイ */
+    #portal-op-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 9990;
+      background: rgba(2, 6, 23, 0.55);
+      backdrop-filter: blur(2px);
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    #portal-op-overlay.is-active {
+      display: flex;
+    }
+    #portal-op-overlay-card {
+      background: white;
+      border-radius: 1rem;
+      padding: 1.75rem 2rem;
+      max-width: 24rem;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    html.dark #portal-op-overlay-card {
+      background: rgb(30, 41, 59);
+      border-color: rgb(71, 85, 105);
+    }
+    #portal-op-overlay-spinner {
+      width: 3rem;
+      height: 3rem;
+      border-radius: 50%;
+      border: 4px solid #e0e7ff;
+      border-top-color: #6366f1;
+      animation: portal-btn-spin 0.8s linear infinite;
+    }
+    html.dark #portal-op-overlay-spinner {
+      border-color: rgb(51, 65, 85);
+      border-top-color: #818cf8;
+    }
+    #portal-op-overlay-msg {
+      font-size: 0.875rem;
+      color: rgb(30, 41, 59);
+      text-align: center;
+      line-height: 1.6;
+    }
+    html.dark #portal-op-overlay-msg {
+      color: rgb(226, 232, 240);
+    }
+    #portal-op-overlay-sub {
+      font-size: 0.75rem;
+      color: rgb(100, 116, 139);
+      text-align: center;
+    }
+    html.dark #portal-op-overlay-sub {
+      color: rgb(148, 163, 184);
+    }
   </style>
 </head>
 <body class="bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 min-h-screen pb-14 transition-colors duration-150">
+
+  <!-- ① トップバー -->
+  <div id="portal-top-bar" role="progressbar" aria-hidden="true"></div>
+
+  <!-- ③ グローバルオーバーレイ -->
+  <div id="portal-op-overlay" aria-live="polite" aria-busy="false">
+    <div id="portal-op-overlay-card">
+      <div id="portal-op-overlay-spinner"></div>
+      <p id="portal-op-overlay-msg">処理中...</p>
+      <p id="portal-op-overlay-sub"></p>
+    </div>
+  </div>
 
   <nav class="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 px-4 sm:px-6 py-3 flex flex-wrap items-center gap-3 sm:gap-5">
     <span class="font-semibold text-sm w-full sm:w-auto text-gray-900 dark:text-slate-100">Creator Portal</span>
@@ -128,12 +257,12 @@
     </div>
     <div class="flex items-center gap-1.5 w-full sm:w-auto sm:ml-auto justify-end">
       <span class="text-xs text-gray-500 dark:text-slate-400 hidden sm:inline">画面</span>
-      <form method="post" action="{{ url_for('dashboard.set_ui_theme') }}" class="inline m-0">
+      <form method="post" action="{{ url_for('dashboard.set_ui_theme') }}" class="inline m-0" data-portal-no-form-loading>
         <input type="hidden" name="next" value="{{ request.full_path }}">
         <input type="hidden" name="theme" value="light">
         <button type="submit" class="px-2 py-1 rounded-md text-xs font-medium border transition-colors {% if ui_theme == 'light' %}bg-indigo-600 border-indigo-600 text-white{% else %}bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700{% endif %}">ライト</button>
       </form>
-      <form method="post" action="{{ url_for('dashboard.set_ui_theme') }}" class="inline m-0">
+      <form method="post" action="{{ url_for('dashboard.set_ui_theme') }}" class="inline m-0" data-portal-no-form-loading>
         <input type="hidden" name="next" value="{{ request.full_path }}">
         <input type="hidden" name="theme" value="dark">
         <button type="submit" class="px-2 py-1 rounded-md text-xs font-medium border transition-colors {% if ui_theme == 'dark' %}bg-indigo-600 border-indigo-600 text-white{% else %}bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700{% endif %}">ダーク</button>
@@ -241,5 +370,149 @@
   })();
   </script>
   {% block scripts %}{% endblock %}
+
+  <!-- Portal Loading UI: 全操作のローディング管理 -->
+  <script>
+  (function () {
+    'use strict';
+
+    /* ---- ① トップバー ---- */
+    var _bar = document.getElementById('portal-top-bar');
+    var _barTimer = null;
+    var _barWidth = 0;
+
+    function barStart() {
+      if (!_bar) return;
+      clearInterval(_barTimer);
+      _bar.classList.remove('is-done');
+      _barWidth = 0;
+      _bar.style.width = '0%';
+      _bar.classList.add('is-running');
+      var steps = [15, 35, 55, 70, 82, 90];
+      var si = 0;
+      _barTimer = setInterval(function () {
+        if (si >= steps.length) { clearInterval(_barTimer); return; }
+        _barWidth = steps[si++];
+        _bar.style.width = _barWidth + '%';
+      }, 400);
+    }
+
+    function barDone() {
+      if (!_bar) return;
+      clearInterval(_barTimer);
+      if (!_bar.classList.contains('is-running')) return;
+      _bar.classList.add('is-done');
+      setTimeout(function () {
+        _bar.classList.remove('is-running', 'is-done');
+        _bar.style.width = '0%';
+      }, 700);
+    }
+
+    document.addEventListener('click', function (e) {
+      var a = e.target.closest('a[href]');
+      if (!a) return;
+      var href = a.getAttribute('href') || '';
+      if (href.startsWith('http') || href.startsWith('#') || href.startsWith('javascript')) return;
+      if (a.target === '_blank') return;
+      if (a.hasAttribute('hx-get') || a.hasAttribute('hx-post')) return;
+      barStart();
+    });
+
+    window.addEventListener('load', function () { barDone(); });
+    window.addEventListener('pageshow', function () { barDone(); });
+
+    /* ---- ② ボタンスピナー ---- */
+    function setButtonLoading(btn) {
+      if (!btn) return;
+      btn.setAttribute('data-original-text', btn.innerHTML);
+      btn.classList.add('portal-btn-loading');
+      btn.disabled = true;
+    }
+
+    function restoreButtons() {
+      document.querySelectorAll('.portal-btn-loading').forEach(function (btn) {
+        btn.classList.remove('portal-btn-loading');
+        btn.disabled = false;
+        var orig = btn.getAttribute('data-original-text');
+        if (orig) { btn.innerHTML = orig; btn.removeAttribute('data-original-text'); }
+      });
+    }
+
+    window.addEventListener('pageshow', function (ev) {
+      if (ev.persisted) { restoreButtons(); hidePortalOpOverlay(); }
+    });
+
+    /* ---- ③ グローバルオーバーレイ ---- */
+    var _overlay = document.getElementById('portal-op-overlay');
+    var _overlayMsg = document.getElementById('portal-op-overlay-msg');
+    var _overlaySub = document.getElementById('portal-op-overlay-sub');
+    var _overlayFocusTimer = null;
+
+    window.showPortalOverlay = function (msg, sub) {
+      if (!_overlay) return;
+      _overlayMsg.innerHTML = msg || '処理中...';
+      _overlaySub.innerHTML = sub || '';
+      _overlay.classList.add('is-active');
+      _overlay.setAttribute('aria-busy', 'true');
+    };
+
+    function hidePortalOpOverlay() {
+      if (_overlay) {
+        _overlay.classList.remove('is-active');
+        _overlay.setAttribute('aria-busy', 'false');
+      }
+    }
+    window.hidePortalOpOverlay = hidePortalOpOverlay;
+
+    window.addEventListener('load', function () { hidePortalOpOverlay(); });
+    window.addEventListener('pageshow', function () { hidePortalOpOverlay(); });
+
+    window.addEventListener('focus', function () {
+      if (!_overlay || !_overlay.classList.contains('is-active')) return;
+      clearTimeout(_overlayFocusTimer);
+      _overlayFocusTimer = setTimeout(hidePortalOpOverlay, 400);
+    });
+
+    /* ---- 全フォームへの自動バインド ---- */
+    function bindForm(form) {
+      if (form.dataset.portalBound) return;
+      form.dataset.portalBound = '1';
+
+      if (form.hasAttribute('data-portal-no-form-loading')) return;
+      if (form.hasAttribute('hx-post') || form.hasAttribute('hx-get')) return;
+      if (form.id === 'image-upload-form') return;
+      if (form.classList.contains('js-story-sd-generate-form')) return;
+      if (form.classList.contains('js-story-schedule-form')) return;
+
+      form.addEventListener('submit', function (e) {
+        var sub = e.submitter;
+        var submitBtn = (sub && sub.tagName === 'BUTTON' && sub.type === 'submit' && !sub.hasAttribute('data-no-loading'))
+          ? sub
+          : form.querySelector('button[type="submit"]:not([data-no-loading])');
+
+        var overlayMsg = form.getAttribute('data-loading-overlay');
+        var overlaySub = form.getAttribute('data-loading-sub') || '';
+        if (overlayMsg) {
+          window.showPortalOverlay(overlayMsg, overlaySub);
+        }
+
+        if (submitBtn && !submitBtn.hasAttribute('data-no-loading')) {
+          setButtonLoading(submitBtn);
+        }
+
+        barStart();
+      });
+    }
+
+    document.querySelectorAll('form').forEach(bindForm);
+
+    document.body.addEventListener('htmx:afterSwap', function () {
+      document.querySelectorAll('form').forEach(bindForm);
+    });
+
+    document.body.addEventListener('htmx:beforeRequest', function () { barStart(); });
+    document.body.addEventListener('htmx:afterRequest', function () { barDone(); });
+  })();
+  </script>
 </body>
 </html>

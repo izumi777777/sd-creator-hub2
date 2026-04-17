@@ -29,7 +29,9 @@
   <div class="space-y-6">
     <section class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
       <h2 class="font-semibold mb-4">PDF</h2>
-      <form id="form-pdf" method="post" action="{{ url_for('export.create_pdf') }}" class="space-y-3">
+      <form id="form-pdf" method="post" action="{{ url_for('export.create_pdf') }}" class="space-y-3"
+            data-loading-overlay="📄 PDF を生成しています..."
+            data-loading-sub="画像を S3 からダウンロードして PDF を作成しています。枚数によっては数十秒かかります。">
         <div class="grid sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-xs text-gray-500 mb-1">ページサイズ</label>
@@ -66,7 +68,9 @@
 
     <section class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
       <h2 class="font-semibold mb-4">ZIP</h2>
-      <form id="form-zip" method="post" action="{{ url_for('export.create_zip') }}" class="space-y-3">
+      <form id="form-zip" method="post" action="{{ url_for('export.create_zip') }}" class="space-y-3"
+            data-loading-overlay="📦 ZIP を作成しています..."
+            data-loading-sub="画像を S3 からダウンロードして ZIP に圧縮しています。枚数によっては数十秒かかります。">
         <p class="text-xs text-gray-500 mb-2">ZIP に含める画像を選択</p>
         <div class="max-h-40 overflow-y-auto space-y-1 mb-2">
           {% for img in images %}

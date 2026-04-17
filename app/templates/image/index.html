@@ -40,7 +40,7 @@
       {% if img.story %}<span class="text-gray-600"> · {{ img.story.title or '（無題ストーリー）' }}</span>{% endif %}
     </p>
     <form method="post" action="{{ url_for('image.delete', iid=img.id) }}" class="mt-2" onsubmit="return confirm('DB と S3 のオブジェクトを削除しますか？');">
-      <button type="submit" class="text-xs text-red-600 hover:underline">レコード削除</button>
+      <button type="submit" class="text-xs text-red-600 hover:underline" data-no-loading>レコード削除</button>
     </form>
   </div>
 </article>
@@ -188,7 +188,10 @@
   {% endif %}
 
   {% if (not images_split and images) or (images_split and (images_original|length + images_stripped|length + images_text_overlay|length + images_legacy|length) > 0) %}
-  <form id="image-bulk-delete-form" method="post" action="{{ url_for('image.bulk_delete') }}" class="mb-4 flex flex-wrap items-center gap-3 text-sm" onsubmit="return typeof window.imageBulkDeleteConfirm === 'function' && window.imageBulkDeleteConfirm();">
+  <form id="image-bulk-delete-form" method="post" action="{{ url_for('image.bulk_delete') }}" class="mb-4 flex flex-wrap items-center gap-3 text-sm"
+        data-loading-overlay="🗑️ 画像を削除しています..."
+        data-loading-sub="S3 と DB から削除します。このままお待ちください。"
+        onsubmit="return typeof window.imageBulkDeleteConfirm === 'function' && window.imageBulkDeleteConfirm();">
     {% if filter_character_id %}<input type="hidden" name="redirect_character_id" value="{{ filter_character_id }}">{% endif %}
     {% if filter_story_id %}<input type="hidden" name="redirect_story_id" value="{{ filter_story_id }}">{% endif %}
     {% if filter_storage_folder %}<input type="hidden" name="redirect_storage_folder" value="{{ filter_storage_folder }}">{% endif %}

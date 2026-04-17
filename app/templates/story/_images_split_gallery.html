@@ -40,7 +40,10 @@
   </p>
 
   {# チェックボックスは form= で紐づけたフォーム外にあるため、this 配下の querySelector では数えられない #}
-  <form id="story-images-bulk-form-{{ sid }}" method="post" action="{{ url_for('story.bulk_delete_story_images', sid=sid) }}" class="mb-3 flex flex-wrap items-center gap-3 text-xs" onsubmit="var f=this,r=f.closest&&f.closest('.js-story-gallery-root'),n=r?r.querySelectorAll('input[name=image_ids]:checked').length:f.querySelectorAll('input[name=image_ids]:checked').length;if(n===0)return false;return confirm('選択した '+n+' 件の画像を削除しますか？\nS3 にファイルがある場合はバケットからも削除されます。');">
+  <form id="story-images-bulk-form-{{ sid }}" method="post" action="{{ url_for('story.bulk_delete_story_images', sid=sid) }}" class="mb-3 flex flex-wrap items-center gap-3 text-xs"
+        data-loading-overlay="🗑️ 画像を削除しています..."
+        data-loading-sub="S3 と DB から削除します。このままお待ちください。"
+        onsubmit="var f=this,r=f.closest&&f.closest('.js-story-gallery-root'),n=r?r.querySelectorAll('input[name=image_ids]:checked').length:f.querySelectorAll('input[name=image_ids]:checked').length;if(n===0)return false;return confirm('選択した '+n+' 件の画像を削除しますか？\nS3 にファイルがある場合はバケットからも削除されます。');">
     {% if gallery_redirect == 'index' %}
     <input type="hidden" name="redirect_target" value="story_index">
     {% endif %}
@@ -114,7 +117,7 @@
               {% endif %}
               <form method="post" action="{{ url_for('story.delete_story_image', sid=sid, iid=img.id) }}" class="inline m-0" onsubmit="return confirm('この画像を削除しますか？');">
                 {% if gallery_redirect == 'index' %}<input type="hidden" name="redirect_target" value="story_index">{% endif %}
-                <button type="submit" class="text-red-600 hover:underline bg-transparent border-0 p-0 cursor-pointer text-xs">削除</button>
+                <button type="submit" class="text-red-600 hover:underline bg-transparent border-0 p-0 cursor-pointer text-xs" data-no-loading>削除</button>
               </form>
             </div>
             {% include 'story/_story_image_overlay_copy_form.html' %}
@@ -162,7 +165,7 @@
               {% endif %}
               <form method="post" action="{{ url_for('story.delete_story_image', sid=sid, iid=img.id) }}" class="inline m-0" onsubmit="return confirm('この画像を削除しますか？');">
                 {% if gallery_redirect == 'index' %}<input type="hidden" name="redirect_target" value="story_index">{% endif %}
-                <button type="submit" class="text-red-600 hover:underline bg-transparent border-0 p-0 cursor-pointer text-xs">削除</button>
+                <button type="submit" class="text-red-600 hover:underline bg-transparent border-0 p-0 cursor-pointer text-xs" data-no-loading>削除</button>
               </form>
             </div>
             {% include 'story/_story_image_overlay_copy_form.html' %}
@@ -210,7 +213,7 @@
               {% endif %}
               <form method="post" action="{{ url_for('story.delete_story_image', sid=sid, iid=img.id) }}" class="inline m-0" onsubmit="return confirm('この画像を削除しますか？');">
                 {% if gallery_redirect == 'index' %}<input type="hidden" name="redirect_target" value="story_index">{% endif %}
-                <button type="submit" class="text-red-600 hover:underline bg-transparent border-0 p-0 cursor-pointer text-xs">削除</button>
+                <button type="submit" class="text-red-600 hover:underline bg-transparent border-0 p-0 cursor-pointer text-xs" data-no-loading>削除</button>
               </form>
             </div>
           </div>
@@ -257,7 +260,7 @@
               {% endif %}
               <form method="post" action="{{ url_for('story.delete_story_image', sid=sid, iid=img.id) }}" class="inline m-0" onsubmit="return confirm('この画像を削除しますか？');">
                 {% if gallery_redirect == 'index' %}<input type="hidden" name="redirect_target" value="story_index">{% endif %}
-                <button type="submit" class="text-red-600 hover:underline bg-transparent border-0 p-0 cursor-pointer text-xs">削除</button>
+                <button type="submit" class="text-red-600 hover:underline bg-transparent border-0 p-0 cursor-pointer text-xs" data-no-loading>削除</button>
               </form>
             </div>
             {% include 'story/_story_image_overlay_copy_form.html' %}
