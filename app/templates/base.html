@@ -188,6 +188,58 @@
       });
     }
   </script>
+  <!-- 画像遅延ロード: IntersectionObserver でビューポート内の画像のみ src をセット -->
+  <script>
+  (function () {
+    'use strict';
+
+    if (!('IntersectionObserver' in window)) {
+      document.querySelectorAll('img[data-lazy-src]').forEach(function (img) {
+        img.src = img.getAttribute('data-lazy-src') || '';
+      });
+      return;
+    }
+
+    var _observer = new IntersectionObserver(
+      function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          var img = entry.target;
+          var lazySrc = img.getAttribute('data-lazy-src');
+          if (!lazySrc) return;
+          img.src = lazySrc;
+          img.removeAttribute('data-lazy-src');
+          _observer.unobserve(img);
+        });
+      },
+      {
+        rootMargin: '200px 0px',
+        threshold: 0,
+      }
+    );
+
+    window.registerLazyImages = function (root) {
+      var scope = root || document;
+      scope.querySelectorAll('img[data-lazy-src]').forEach(function (img) {
+        _observer.observe(img);
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function () {
+        window.registerLazyImages();
+      });
+    } else {
+      window.registerLazyImages();
+    }
+
+    document.body.addEventListener('htmx:afterSwap', function (evt) {
+      if (evt.detail && evt.detail.target) {
+        window.registerLazyImages(evt.detail.target);
+      }
+    });
+  })();
+  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

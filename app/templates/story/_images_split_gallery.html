@@ -87,15 +87,19 @@
           </label>
           {% if img.s3_key %}
           <a href="{{ gallery_image_view_url(img) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
-            <img src="{{ gallery_image_view_url(img) }}"
+            <img data-lazy-src="{{ gallery_image_view_url(img) }}"
+                 src=""
                  onerror="this.onerror=null; this.src='{{ url_for('image.preview', iid=img.id) }}';"
-                 alt="" class="w-full h-full object-contain" loading="lazy">
+                 alt="" class="w-full h-full object-contain bg-gray-100" loading="lazy"
+                 width="512" height="384">
           </a>
           {% elif img.s3_url %}
           <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">
-            <img src="{{ img.s3_url }}"
+            <img data-lazy-src="{{ img.s3_url }}"
+                 src=""
                  onerror="this.onerror=null; this.src='{{ url_for('image.preview', iid=img.id) }}';"
-                 alt="" class="w-full h-full object-contain" loading="lazy">
+                 alt="" class="w-full h-full object-contain bg-gray-100" loading="lazy"
+                 width="512" height="384">
           </a>
           {% else %}
           <div class="aspect-video bg-gray-100 flex items-center justify-center text-gray-400 text-xs">URL なし</div>
@@ -131,15 +135,19 @@
           </label>
           {% if img.s3_key %}
           <a href="{{ gallery_image_view_url(img) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
-            <img src="{{ gallery_image_view_url(img) }}"
+            <img data-lazy-src="{{ gallery_image_view_url(img) }}"
+                 src=""
                  onerror="this.onerror=null; this.src='{{ url_for('image.preview', iid=img.id) }}';"
-                 alt="" class="w-full h-full object-contain" loading="lazy">
+                 alt="" class="w-full h-full object-contain bg-gray-100" loading="lazy"
+                 width="512" height="384">
           </a>
           {% elif img.s3_url %}
           <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">
-            <img src="{{ img.s3_url }}"
+            <img data-lazy-src="{{ img.s3_url }}"
+                 src=""
                  onerror="this.onerror=null; this.src='{{ url_for('image.preview', iid=img.id) }}';"
-                 alt="" class="w-full h-full object-contain" loading="lazy">
+                 alt="" class="w-full h-full object-contain bg-gray-100" loading="lazy"
+                 width="512" height="384">
           </a>
           {% else %}
           <div class="aspect-video bg-gray-100 flex items-center justify-center text-gray-400 text-xs">URL なし</div>
@@ -175,15 +183,19 @@
           </label>
           {% if img.s3_key %}
           <a href="{{ gallery_image_view_url(img) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
-            <img src="{{ gallery_image_view_url(img) }}"
+            <img data-lazy-src="{{ gallery_image_view_url(img) }}"
+                 src=""
                  onerror="this.onerror=null; this.src='{{ url_for('image.preview', iid=img.id) }}';"
-                 alt="" class="w-full h-full object-contain" loading="lazy">
+                 alt="" class="w-full h-full object-contain bg-gray-100" loading="lazy"
+                 width="512" height="384">
           </a>
           {% elif img.s3_url %}
           <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">
-            <img src="{{ img.s3_url }}"
+            <img data-lazy-src="{{ img.s3_url }}"
+                 src=""
                  onerror="this.onerror=null; this.src='{{ url_for('image.preview', iid=img.id) }}';"
-                 alt="" class="w-full h-full object-contain" loading="lazy">
+                 alt="" class="w-full h-full object-contain bg-gray-100" loading="lazy"
+                 width="512" height="384">
           </a>
           {% else %}
           <div class="aspect-video bg-gray-100 flex items-center justify-center text-gray-400 text-xs">URL なし</div>
@@ -218,15 +230,19 @@
           </label>
           {% if img.s3_key %}
           <a href="{{ gallery_image_view_url(img) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
-            <img src="{{ gallery_image_view_url(img) }}"
+            <img data-lazy-src="{{ gallery_image_view_url(img) }}"
+                 src=""
                  onerror="this.onerror=null; this.src='{{ url_for('image.preview', iid=img.id) }}';"
-                 alt="" class="w-full h-full object-contain" loading="lazy">
+                 alt="" class="w-full h-full object-contain bg-gray-100" loading="lazy"
+                 width="512" height="384">
           </a>
           {% elif img.s3_url %}
           <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">
-            <img src="{{ img.s3_url }}"
+            <img data-lazy-src="{{ img.s3_url }}"
+                 src=""
                  onerror="this.onerror=null; this.src='{{ url_for('image.preview', iid=img.id) }}';"
-                 alt="" class="w-full h-full object-contain" loading="lazy">
+                 alt="" class="w-full h-full object-contain bg-gray-100" loading="lazy"
+                 width="512" height="384">
           </a>
           {% else %}
           <div class="aspect-video bg-gray-100 flex items-center justify-center text-gray-400 text-xs">URL なし</div>

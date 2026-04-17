@@ -93,6 +93,7 @@
       });
       clearAllChecks();
       syncBulk(root);
+      if (window.registerLazyImages) window.registerLazyImages(root);
     }
 
     buttons.forEach(function (b) {
@@ -106,6 +107,7 @@
   document.querySelectorAll('.js-story-gallery-root').forEach(function (root) {
     initBulk(root);
     initTabs(root);
+    if (window.registerLazyImages) window.registerLazyImages(root);
   });
 })();
 </script>
