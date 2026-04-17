@@ -2,17 +2,36 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from zoneinfo import ZoneInfo
 
 
-def scheduler_zoneinfo(tz_name: str | None) -> ZoneInfo:
-    """IANA タイムゾーン名から ZoneInfo。不正なら UTC。"""
+def scheduler_zoneinfo(tz_name: str | None) -> tzinfo:
+    """
+    IANA タイムゾーン名から tzinfo を返す。
+
+    Windows 等で PEP 615 の tz データ（tzdata パッケージ）が無いと
+    ZoneInfo が一切使えないため、主要ゾーンは固定オフセットにフォールバックする。
+    """
     raw = (tz_name or "").strip() or "Asia/Tokyo"
+    r = raw.lower()
+
     try:
         return ZoneInfo(raw)
     except Exception:
+        pass
+
+    if r in ("utc", "gmt", "etc/utc", "etc/gmt", "etc/gmt+0", "etc/gmt-0", "z"):
+        return timezone.utc
+
+    # 日本標準時（DST なし）— tzdata なしでも予約の壁時計解釈に使える
+    if raw in ("Asia/Tokyo", "Japan"):
+        return timezone(timedelta(hours=9), "JST")
+
+    try:
         return ZoneInfo("UTC")
+    except Exception:
+        return timezone.utc
 
 
 def utc_now_naive() -> datetime:
