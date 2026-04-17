@@ -1,6 +1,8 @@
 """PDF / ZIP エクスポート。"""
 
 import io
+import logging
+import time
 
 from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
 
@@ -20,6 +22,7 @@ def _fetch_url_for_image(img: Image) -> str | None:
     return img.s3_url
 
 bp = Blueprint("export", __name__)
+logger = logging.getLogger(__name__)
 
 
 @bp.route("/")
@@ -50,8 +53,24 @@ def create_pdf():
         flash("S3 に紐づく画像を選択してください。", "error")
         return redirect(url_for("export.index"))
 
+    logger.info(
+        "PDF 生成 開始 | 画像=%d 件 | page_size=%s | fit=%s | bg=%s",
+        len(urls),
+        page_size,
+        fit_mode,
+        bg_color,
+    )
+    start = time.perf_counter()
+
     try:
         pdf_bytes = generate_pdf(urls, page_size, fit_mode, bg_color)  # type: ignore[arg-type]
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        logger.info(
+            "PDF 生成 完了 ✓ | %d 件 → %.1f KB | %dms",
+            len(urls),
+            len(pdf_bytes) / 1024,
+            elapsed_ms,
+        )
         return send_file(
             io.BytesIO(pdf_bytes),
             mimetype="application/pdf",
@@ -59,6 +78,12 @@ def create_pdf():
             download_name=filename,
         )
     except Exception as e:
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        logger.error(
+            "PDF 生成 失敗 ✗ | %dms | %s",
+            elapsed_ms,
+            e,
+        )
         flash(f"PDF 生成エラー: {e}", "error")
         return redirect(url_for("export.index"))
 
@@ -87,8 +112,22 @@ def create_zip():
         flash("S3 に紐づく画像を選択してください。", "error")
         return redirect(url_for("export.index"))
 
+    logger.info(
+        "ZIP 生成 開始 | 画像=%d 件 | structure=%s",
+        len(images_data),
+        structure,
+    )
+    start = time.perf_counter()
+
     try:
         zip_bytes = generate_zip(images_data, structure)  # type: ignore[arg-type]
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        logger.info(
+            "ZIP 生成 完了 ✓ | %d 件 → %.1f KB | %dms",
+            len(images_data),
+            len(zip_bytes) / 1024,
+            elapsed_ms,
+        )
         return send_file(
             io.BytesIO(zip_bytes),
             mimetype="application/zip",
@@ -96,5 +135,11 @@ def create_zip():
             download_name=filename,
         )
     except Exception as e:
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        logger.error(
+            "ZIP 生成 失敗 ✗ | %dms | %s",
+            elapsed_ms,
+            e,
+        )
         flash(f"ZIP 生成エラー: {e}", "error")
         return redirect(url_for("export.index"))

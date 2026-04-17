@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import logging
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -91,20 +93,42 @@ def strip_metadata_from_bytes(data: bytes) -> bytes:
 
     PNG / JPEG を想定。WebP は PIL が開ける場合は PNG バイトで返す。
     """
-    bio_in = io.BytesIO(data)
-    with Image.open(bio_in) as im:
-        im.load()
-        fmt = (im.format or "").upper()
-        out = io.BytesIO()
-        if fmt == "JPEG" or data[:2] == b"\xff\xd8":
-            im.convert("RGB").save(out, format="JPEG", quality=95, optimize=True)
+    _logger = logging.getLogger(__name__)
+    start = time.perf_counter()
+
+    def _do_strip(src: bytes) -> bytes:
+        bio_in = io.BytesIO(src)
+        with Image.open(bio_in) as im:
+            im.load()
+            fmt = (im.format or "").upper()
+            out = io.BytesIO()
+            if fmt == "JPEG" or src[:2] == b"\xff\xd8":
+                im.convert("RGB").save(out, format="JPEG", quality=95, optimize=True)
+                return out.getvalue()
+            if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+                buf = im.convert("RGBA")
+            else:
+                buf = im.convert("RGB")
+            buf.save(out, format="PNG", optimize=True)
             return out.getvalue()
-        if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
-            buf = im.convert("RGBA")
-        else:
-            buf = im.convert("RGB")
-        buf.save(out, format="PNG", optimize=True)
-        return out.getvalue()
+
+    try:
+        result = _do_strip(data)
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        _logger.debug(
+            "メタデータ除去完了 | %d → %d bytes (%+d) | %dms",
+            len(data),
+            len(result),
+            len(result) - len(data),
+            elapsed_ms,
+        )
+        return result
+    except Exception as e:
+        _logger.warning(
+            "メタデータ除去失敗（元バイト列を返す）: %s",
+            e,
+        )
+        return data
 
 
 def strip_metadata_to_file(src: Path, dest: Path) -> None:

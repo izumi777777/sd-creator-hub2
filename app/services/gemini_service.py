@@ -179,9 +179,10 @@ def call_gemini_text(
         )
 
     model_names = _gemini_model_names()
+    total_start = time.perf_counter()
     logger.info(
-        "%s: Gemini プレーンテキスト処理シーケンス開始 max_output_tokens=%s 試行順=%s "
-        "user_chars=%d system_chars=%d",
+        "[%s] Gemini テキスト生成開始 | max_tokens=%d | モデル候補=%s | "
+        "user=%d文字 | system=%d文字",
         log_label,
         max_tokens,
         model_names,
@@ -192,8 +193,9 @@ def call_gemini_text(
     client = _get_gemini_client(api_key)
     errors: list[str] = []
     for model_name in model_names:
+        attempt_start = time.perf_counter()
         logger.info(
-            "%s: Gemini 処理中（プレーンテキスト）model=%s → Google API generate_content 送信",
+            "[%s] 試行: model=%s",
             log_label,
             model_name,
         )
@@ -202,45 +204,52 @@ def call_gemini_text(
                 system_instruction=system,
                 max_output_tokens=max_tokens,
             )
-            t0 = time.perf_counter()
             response = client.models.generate_content(
                 model=model_name,
                 contents=user_message,
                 config=cfg,
             )
-            wall_ms = (time.perf_counter() - t0) * 1000
-            finish_s = _response_finish_reason_str(response)
-            logger.info(
-                "%s: Gemini API 応答受信 model=%s wall_ms=%.0f finish_reason=%r usage=%s",
-                log_label,
-                model_name,
-                wall_ms,
-                finish_s,
-                _usage_metadata_summary(response),
-            )
             text = _extract_response_text(response)
         except Exception as e:
+            elapsed_ms = int((time.perf_counter() - attempt_start) * 1000)
             errors.append(f"{model_name}: {e}")
             logger.warning(
-                "%s: 試行失敗 model=%s %s",
+                "[%s] 試行失敗: model=%s %dms | %s",
                 log_label,
                 model_name,
+                elapsed_ms,
                 _short_err(e),
             )
             continue
 
+        attempt_ms = int((time.perf_counter() - attempt_start) * 1000)
         if text and text.strip():
+            total_ms = int((time.perf_counter() - total_start) * 1000)
             logger.info(
-                "%s: 成功 model=%s 応答_chars≈%d（抽出後）",
+                "[%s] 生成成功 ✓ | model=%s | 応答=%d文字 | 合計%dms",
                 log_label,
                 model_name,
-                len(text),
+                len(text.strip()),
+                total_ms,
             )
             _last_successful_model = model_name
             return text.strip()
 
         errors.append(f"{model_name}: 空の応答")
-        logger.warning("%s: 空の応答 model=%s", log_label, model_name)
+        logger.warning(
+            "[%s] 空の応答: model=%s %dms",
+            log_label,
+            model_name,
+            attempt_ms,
+        )
+
+    total_ms = int((time.perf_counter() - total_start) * 1000)
+    logger.error(
+        "[%s] 全試行失敗 ✗ | 試行=%d回 | 合計%dms",
+        log_label,
+        len(errors),
+        total_ms,
+    )
 
     detail = "\n".join(errors[:15])
     if len(errors) > 15:
@@ -254,7 +263,6 @@ def call_gemini_text(
         head = hint + "\n\n" + head
     else:
         head += " .env の GEMINI_MODEL やネットワークを確認してください。"
-    logger.error("%s: 全試行失敗 attempts=%d", log_label, len(errors))
     raise ValueError(f"{head}\n----\n{detail}")
 
 
@@ -285,20 +293,23 @@ def call_gemini_chat(
         for c in contents
         for p in (getattr(c, "parts", None) or [])
     )
+    total_start = time.perf_counter()
     logger.info(
-        "%s: Gemini チャット処理シーケンス開始 turns=%d history_chars≈%s max_output_tokens=%s 試行順=%s",
+        "[%s] Gemini チャット生成開始 | max_tokens=%d | turns=%d | history≈%d文字 | "
+        "モデル候補=%s",
         log_label,
+        max_tokens,
         len(contents),
         hist_chars,
-        max_tokens,
         model_names,
     )
 
     client = _get_gemini_client(api_key)
     errors: list[str] = []
     for model_name in model_names:
+        attempt_start = time.perf_counter()
         logger.info(
-            "%s: Gemini 処理中（マルチターン）model=%s → Google API generate_content 送信",
+            "[%s] 試行: model=%s",
             log_label,
             model_name,
         )
@@ -307,45 +318,52 @@ def call_gemini_chat(
                 system_instruction=system,
                 max_output_tokens=max_tokens,
             )
-            t0 = time.perf_counter()
             response = client.models.generate_content(
                 model=model_name,
                 contents=contents,
                 config=cfg,
             )
-            wall_ms = (time.perf_counter() - t0) * 1000
-            finish_s = _response_finish_reason_str(response)
-            logger.info(
-                "%s: Gemini API 応答受信 model=%s wall_ms=%.0f finish_reason=%r usage=%s",
-                log_label,
-                model_name,
-                wall_ms,
-                finish_s,
-                _usage_metadata_summary(response),
-            )
             text = _extract_response_text(response)
         except Exception as e:
+            elapsed_ms = int((time.perf_counter() - attempt_start) * 1000)
             errors.append(f"{model_name}: {e}")
             logger.warning(
-                "%s: 試行失敗 model=%s %s",
+                "[%s] 試行失敗: model=%s %dms | %s",
                 log_label,
                 model_name,
+                elapsed_ms,
                 _short_err(e),
             )
             continue
 
+        attempt_ms = int((time.perf_counter() - attempt_start) * 1000)
         if text and text.strip():
+            total_ms = int((time.perf_counter() - total_start) * 1000)
             logger.info(
-                "%s: 成功 model=%s 応答_chars≈%d（抽出後）",
+                "[%s] 生成成功 ✓ | model=%s | 応答=%d文字 | 合計%dms",
                 log_label,
                 model_name,
-                len(text),
+                len(text.strip()),
+                total_ms,
             )
             _last_successful_model = model_name
             return text.strip()
 
         errors.append(f"{model_name}: 空の応答")
-        logger.warning("%s: 空の応答 model=%s", log_label, model_name)
+        logger.warning(
+            "[%s] 空の応答: model=%s %dms",
+            log_label,
+            model_name,
+            attempt_ms,
+        )
+
+    total_ms = int((time.perf_counter() - total_start) * 1000)
+    logger.error(
+        "[%s] 全試行失敗 ✗ | 試行=%d回 | 合計%dms",
+        log_label,
+        len(errors),
+        total_ms,
+    )
 
     detail = "\n".join(errors[:15])
     if len(errors) > 15:
@@ -359,7 +377,6 @@ def call_gemini_chat(
         head = hint + "\n\n" + head
     else:
         head += " .env の GEMINI_MODEL やネットワークを確認してください。"
-    logger.error("%s: 全試行失敗 attempts=%d", log_label, len(errors))
     raise ValueError(f"{head}\n----\n{detail}")
 
 
@@ -398,10 +415,11 @@ def call_gemini_json(
         )
 
     model_names = _gemini_model_names()
+    total_start = time.perf_counter()
 
     logger.info(
-        "%s: Gemini JSON 処理シーケンス開始 max_output_tokens=%s 試行順=%s "
-        "user_chars=%d system_chars=%d（モデル×json/plain の順で試行）",
+        "[%s] Gemini JSON 生成開始 | max_tokens=%d | モデル候補=%s | "
+        "user=%d文字 | system=%d文字",
         log_label,
         max_tokens,
         model_names,
@@ -414,8 +432,9 @@ def call_gemini_json(
     for model_name in model_names:
         for use_json in (True, False):
             label = "json" if use_json else "plain"
+            attempt_start = time.perf_counter()
             logger.info(
-                "%s: Gemini 処理中（JSON モード試行）model=%s mode=%s → Google API generate_content 送信",
+                "[%s] 試行: model=%s mode=%s",
                 log_label,
                 model_name,
                 label,
@@ -428,40 +447,37 @@ def call_gemini_json(
                 if use_json:
                     kwargs["response_mime_type"] = "application/json"
                 cfg = types.GenerateContentConfig(**kwargs)
-                t0 = time.perf_counter()
                 response = client.models.generate_content(
                     model=model_name,
                     contents=user_message,
                     config=cfg,
                 )
-                wall_ms = (time.perf_counter() - t0) * 1000
                 finish_s = _response_finish_reason_str(response)
-                logger.info(
-                    "%s: Gemini API 応答受信 model=%s mode=%s wall_ms=%.0f finish_reason=%r usage=%s",
-                    log_label,
-                    model_name,
-                    label,
-                    wall_ms,
-                    finish_s,
-                    _usage_metadata_summary(response),
-                )
                 text = _extract_response_text(response)
             except Exception as e:
+                elapsed_ms = int((time.perf_counter() - attempt_start) * 1000)
                 err_line = f"{model_name} ({label}): {e}"
                 errors.append(err_line)
                 logger.warning(
-                    "%s: 試行失敗 model=%s mode=%s %s",
+                    "[%s] 試行失敗: model=%s mode=%s %dms | %s",
                     log_label,
                     model_name,
                     label,
+                    elapsed_ms,
                     _short_err(e),
                 )
                 continue
 
+            attempt_ms = int((time.perf_counter() - attempt_start) * 1000)
+
             if not text:
                 errors.append(f"{model_name} ({label}): 空の応答")
                 logger.warning(
-                    "%s: 空の応答 model=%s mode=%s", log_label, model_name, label
+                    "[%s] 空の応答: model=%s mode=%s %dms",
+                    log_label,
+                    model_name,
+                    label,
+                    attempt_ms,
                 )
                 continue
 
@@ -476,34 +492,45 @@ def call_gemini_json(
                     trunc = "（応答が長いため max_output_tokens 不足で切れた可能性があります）"
                 errors.append(f"{model_name} ({label}): JSON 解析失敗 — {e}{trunc}")
                 logger.warning(
-                    "%s: JSON 解析失敗 model=%s mode=%s finish=%s %s",
+                    "[%s] JSON 解析失敗: model=%s mode=%s %dms finish=%s",
                     log_label,
                     model_name,
                     label,
+                    attempt_ms,
                     finish_s,
-                    _short_err(e),
                 )
                 continue
 
             if isinstance(parsed, dict):
-                keys = list(parsed.keys())
+                total_ms = int((time.perf_counter() - total_start) * 1000)
                 logger.info(
-                    "%s: 成功（JSON オブジェクト確定）model=%s mode=%s keys=%s raw_chars=%d",
+                    "[%s] 生成成功 ✓ | model=%s mode=%s | "
+                    "応答=%d文字 | keys=%s | 合計%dms",
                     log_label,
                     model_name,
                     label,
-                    keys,
                     len(clean_text),
+                    list(parsed.keys()),
+                    total_ms,
                 )
                 _last_successful_model = model_name
                 return parsed
             errors.append(f"{model_name} ({label}): トップレベルが JSON オブジェクトではない")
             logger.warning(
-                "%s: JSON がオブジェクトでない model=%s mode=%s",
+                "[%s] JSON がオブジェクトでない: model=%s mode=%s %dms",
                 log_label,
                 model_name,
                 label,
+                attempt_ms,
             )
+
+    total_ms = int((time.perf_counter() - total_start) * 1000)
+    logger.error(
+        "[%s] 全試行失敗 ✗ | 試行=%d回 | 合計%dms",
+        log_label,
+        len(errors),
+        total_ms,
+    )
 
     detail = "\n".join(errors[:15])
     if len(errors) > 15:
@@ -517,10 +544,4 @@ def call_gemini_json(
         head = hint + "\n\n" + head
     else:
         head += " .env の GEMINI_MODEL やネットワークを確認してください。"
-    logger.error(
-        "%s: 全試行失敗 attempts=%d models=%s",
-        log_label,
-        len(errors),
-        model_names,
-    )
     raise ValueError(f"{head}\n----\n{detail}")

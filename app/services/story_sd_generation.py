@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import logging
+import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -372,23 +373,76 @@ def generate_chapter_images(
     if payload.get("enable_hr"):
         timeout = min(3600.0, timeout + 120.0 + 30.0 * max(0, int(payload.get("hr_second_pass_steps") or payload["steps"]) - 15))
 
+    pos_s = str(pos)
+    logger.info("=" * 50)
     logger.info(
-        "story_sd_generation: txt2img story_id=%s ch_no=%s variant=%s steps=%s size=%sx%s batch=%s n_iter=%s sampler=%s cfg=%s hires=%s hr_scale=%s",
+        "画像生成 開始 | story_id=%s | ch=%s | variant=%s",
         story.id,
         ch_no,
         variant_index,
-        payload["steps"],
+    )
+    logger.info(
+        "  キャラ    : %s (id=%s)",
+        character.name,
+        character.id,
+    )
+    logger.info(
+        "  モデル    : %s",
+        payload.get("override_settings", {}).get("sd_model_checkpoint", "unknown"),
+    )
+    logger.info(
+        "  サイズ    : %sx%s  steps=%s  cfg=%s  sampler=%s",
         payload["width"],
         payload["height"],
+        payload["steps"],
+        payload.get("cfg_scale"),
+        payload.get("sampler_name"),
+    )
+    logger.info(
+        "  バッチ    : batch=%s × n_iter=%s = 合計%s枚",
         bs,
         ni,
-        payload.get("sampler_name"),
-        payload.get("cfg_scale"),
-        payload.get("enable_hr"),
-        payload.get("hr_scale") if payload.get("enable_hr") else None,
+        bs * ni,
     )
-    raw_response = txt2img(base_url, payload, timeout=timeout)
+    if payload.get("enable_hr"):
+        logger.info(
+            "  Hi-res fix: ON | scale=%s | denoise=%s | 2nd_steps=%s",
+            payload.get("hr_scale"),
+            payload.get("denoising_strength"),
+            payload.get("hr_second_pass_steps", 0),
+        )
+    logger.info(
+        "  Positive  : %s...",
+        pos_s[:100],
+    )
+    logger.info(
+        "  Web UI URL: %s",
+        base_url,
+    )
+
+    api_start = time.perf_counter()
+    logger.info("  Web UI API 呼び出し中...")
+
+    try:
+        raw_response = txt2img(base_url, payload, timeout=timeout)
+    except Exception as e:
+        elapsed_ms = int((time.perf_counter() - api_start) * 1000)
+        logger.error(
+            "画像生成 失敗 ✗ | story_id=%s ch=%s | %dms | %s",
+            story.id,
+            ch_no,
+            elapsed_ms,
+            e,
+        )
+        raise
+
+    api_ms = int((time.perf_counter() - api_start) * 1000)
     originals = all_image_bytes(raw_response)
+    logger.info(
+        "  Web UI 完了 ✓ | %d枚受信 | %dms",
+        len(originals),
+        api_ms,
+    )
     overlay_enabled = bool(current_app.config.get("STORY_IMAGE_TEXT_OVERLAY", True))
     overlay_font = current_app.config.get("STORY_OVERLAY_FONT_PATH")
     overlay_font_s = overlay_font if isinstance(overlay_font, str) else None
@@ -411,7 +465,13 @@ def generate_chapter_images(
     vpart = f"v{variant_index}" if variant_index is not None else "main"
     run_uid = uuid.uuid4().hex[:10]
 
+    upload_start = time.perf_counter()
     for idx, original_bytes in enumerate(originals):
+        logger.info(
+            "  S3 保存中 [%d/%d] original + stripped...",
+            idx + 1,
+            len(originals),
+        )
         if overlay_enabled and (top_overlay or bottom_overlay):
             original_bytes = maybe_apply_story_text_overlay(
                 original_bytes,
@@ -460,6 +520,22 @@ def generate_chapter_images(
         db.session.add(img_orig)
         db.session.add(img_strip)
         out.append((img_orig, img_strip))
+
+    upload_ms = int((time.perf_counter() - upload_start) * 1000)
+    total_ms = api_ms + upload_ms
+
+    logger.info(
+        "画像生成 完了 ✓ | story_id=%s ch=%s | "
+        "生成%d枚 → S3保存%d件 | WebUI:%dms S3:%dms 合計:%dms",
+        story.id,
+        ch_no,
+        len(originals),
+        len(originals) * 2,
+        api_ms,
+        upload_ms,
+        total_ms,
+    )
+    logger.info("=" * 50)
 
     db.session.commit()
     return out

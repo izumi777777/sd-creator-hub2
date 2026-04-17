@@ -65,7 +65,7 @@ class Config:
     except ValueError:
         GEMINI_STORY_MAX_OUTPUT_TOKENS = 65536
     # ログレベル（DEBUG / INFO / WARNING …）。Gemini 生成の試行ログは INFO。
-    LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+    LOG_LEVEL = os.environ.get("LOG_LEVEL", "DEBUG")
 
     AWS_PROFILE = os.environ.get("AWS_PROFILE")
     AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import logging
+import time
 from functools import lru_cache
 from typing import Any
 
@@ -241,6 +242,14 @@ def maybe_apply_story_text_overlay(
     if not top and not bottom:
         return image_bytes
 
+    start = time.perf_counter()
+    logger.info(
+        "テキスト焼き込み開始 | 上段=%d文字 | 下段=%d文字 | font=%r",
+        len(top),
+        len(bottom),
+        font_path,
+    )
+
     try:
         bio_in = io.BytesIO(image_bytes)
         with Image.open(bio_in) as im:
@@ -254,9 +263,21 @@ def maybe_apply_story_text_overlay(
             rgb.save(out, format="JPEG", quality=95, optimize=True)
         else:
             rgb.save(out, format="PNG", optimize=True)
-        return out.getvalue()
+        result = out.getvalue()
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        logger.info(
+            "テキスト焼き込み完了 ✓ | %dms | サイズ %d → %d bytes",
+            elapsed_ms,
+            len(image_bytes),
+            len(result),
+        )
+        return result
     except Exception:
-        logger.exception("chapter_image_overlay: オーバーレイ失敗のため元画像を保存します")
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        logger.exception(
+            "テキスト焼き込み失敗 ✗ | %dms | 元画像を返す",
+            elapsed_ms,
+        )
         return image_bytes
 
 

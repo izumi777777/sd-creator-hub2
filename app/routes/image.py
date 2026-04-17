@@ -1,6 +1,8 @@
 """画像のアップロード（S3）と DB 登録・一覧。"""
 
 import io
+import logging
+import time
 import uuid
 from typing import Any
 
@@ -31,6 +33,7 @@ from app.models.work import Work
 from app.services import s3_service
 
 bp = Blueprint("image", __name__)
+logger = logging.getLogger(__name__)
 
 
 def delete_portal_image(img: Image) -> tuple[bool, str | None]:
@@ -221,7 +224,17 @@ def upload():
     failures: list[str] = []
     mb_limit = _MAX_BYTES_PER_FILE // (1024 * 1024)
 
-    for file in files:
+    total_files = len(files)
+    logger.info(
+        "画像アップロード 開始 | キャラ=%r (id=%s) | %d 件 | folder=%s",
+        character.name,
+        character_id,
+        total_files,
+        storage_folder,
+    )
+    batch_start = time.perf_counter()
+
+    for idx, file in enumerate(files, 1):
         safe_name = secure_filename(file.filename)
         if not safe_name:
             failures.append("（無効なファイル名）")
@@ -239,6 +252,14 @@ def upload():
         unique_key = f"{uuid.uuid4().hex[:12]}_{safe_name}"
         s3_key = f"{prefix}/{storage_folder}/{unique_key}"
         buf = io.BytesIO(data)
+        file_start = time.perf_counter()
+        logger.info(
+            "  [%d/%d] S3 送信中: %s (%s KB)",
+            idx,
+            total_files,
+            safe_name,
+            size // 1024,
+        )
         try:
             content_type = _guess_content_type(safe_name)
             url = s3_service.upload_image(buf, s3_key, content_type=content_type)
@@ -248,6 +269,15 @@ def upload():
         except Exception as e:
             failures.append(f"{safe_name}: S3 失敗 ({e})")
             continue
+
+        file_ms = int((time.perf_counter() - file_start) * 1000)
+        logger.info(
+            "  [%d/%d] S3 完了 ✓ | %s | %dms",
+            idx,
+            total_files,
+            safe_name,
+            file_ms,
+        )
 
         img = Image(
             character_id=character_id,
@@ -266,6 +296,14 @@ def upload():
         except Exception as e:
             db.session.rollback()
             failures.append(f"{safe_name}: DB 失敗 ({e})")
+
+    batch_ms = int((time.perf_counter() - batch_start) * 1000)
+    logger.info(
+        "画像アップロード 完了 | 成功=%d 失敗=%d | 合計%dms",
+        ok,
+        len(failures),
+        batch_ms,
+    )
 
     redir_kw: dict = {"character_id": character_id}
     if story_id:

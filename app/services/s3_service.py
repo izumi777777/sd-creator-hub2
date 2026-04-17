@@ -1,6 +1,7 @@
 """Amazon S3 へのアップロード・一覧・署名付き URL。"""
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections.abc import Iterable
 from typing import Any
@@ -108,14 +109,36 @@ def upload_file(file_obj: Any, s3_key: str, content_type: str) -> str:
     bucket = current_app.config["AWS_S3_BUCKET"]
     region = current_app.config["AWS_S3_REGION"]
 
-    s3.upload_fileobj(
-        file_obj,
-        bucket,
+    logger.info(
+        "S3 アップロード開始: key=%r content_type=%s",
         s3_key,
-        ExtraArgs={"ContentType": content_type},
+        content_type,
     )
-
-    return f"https://{bucket}.s3.{region}.amazonaws.com/{s3_key}"
+    start = time.perf_counter()
+    try:
+        s3.upload_fileobj(
+            file_obj,
+            bucket,
+            s3_key,
+            ExtraArgs={"ContentType": content_type},
+        )
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        url = f"https://{bucket}.s3.{region}.amazonaws.com/{s3_key}"
+        logger.info(
+            "S3 アップロード完了: key=%r %dms",
+            s3_key,
+            elapsed_ms,
+        )
+        return url
+    except Exception as e:
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        logger.error(
+            "S3 アップロード失敗: key=%r %dms error=%s",
+            s3_key,
+            elapsed_ms,
+            e,
+        )
+        raise
 
 
 def list_images(prefix: str = "") -> list[dict[str, Any]]:
@@ -429,7 +452,9 @@ def delete_object(s3_key: str) -> None:
         raise ValueError("s3_key が空です。")
     s3 = get_s3_client()
     bucket = current_app.config["AWS_S3_BUCKET"]
+    logger.info("S3 削除: key=%r", s3_key)
     s3.delete_object(Bucket=bucket, Key=s3_key)
+    logger.info("S3 削除完了: key=%r", s3_key)
 
 
 def _batch_presign_worker(
@@ -497,6 +522,7 @@ def batch_presigned_portal_image_view_urls(
     if not is_s3_configured():
         return {}
 
+    start = time.perf_counter()
     app = current_app._get_current_object()
     rows: list[tuple[int, str, str | None, str | None]] = []
     for img in images:
@@ -514,6 +540,11 @@ def batch_presigned_portal_image_view_urls(
                 getattr(img, "s3_url", None),
             )
         )
+
+    logger.info(
+        "署名URL 一括生成開始: 対象=%d 件",
+        len(rows),
+    )
 
     out: dict[int, str] = {}
     if rows:
@@ -535,6 +566,13 @@ def batch_presigned_portal_image_view_urls(
                 if url:
                     out[iid] = url
 
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    logger.info(
+        "署名URL 一括生成完了: 成功=%d 件 / 対象=%d 件 %dms",
+        len(out),
+        len(rows),
+        elapsed_ms,
+    )
     return out
 
 

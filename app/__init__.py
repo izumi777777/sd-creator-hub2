@@ -34,14 +34,32 @@ def _configure_logging(app: Flask) -> None:
     """コンソールへアプリ／AI 生成処理のログを出す。"""
     raw = (app.config.get("LOG_LEVEL") or "INFO").upper()
     level = getattr(logging, raw, logging.INFO)
+
     fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     datefmt = "%Y-%m-%d %H:%M:%S"
+
     root = logging.getLogger()
     if not root.handlers:
-        logging.basicConfig(level=level, format=fmt, datefmt=datefmt)
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(fmt=fmt, datefmt=datefmt))
+        root.addHandler(handler)
+        root.setLevel(level)
     else:
         root.setLevel(level)
+
     app.logger.setLevel(level)
+
+    logging.getLogger("boto3").setLevel(logging.WARNING)
+    logging.getLogger("botocore").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("s3transfer").setLevel(logging.WARNING)
+    logging.getLogger("google").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    app.logger.info("=" * 60)
+    app.logger.info("Creator Portal 起動")
+    app.logger.info("LOG_LEVEL = %s", raw)
+    app.logger.info("=" * 60)
 
 
 def _should_skip_http_access_log() -> bool:
@@ -57,37 +75,35 @@ def _should_skip_http_access_log() -> bool:
 
 
 def _register_request_logging(app: Flask) -> None:
-    """ブラウザからの各リクエストで、処理内容の概要を INFO に出す。"""
+    """リクエストの開始・終了と所要時間（遅いページの特定に使う）。"""
 
     @app.before_request
-    def _portal_request_begin():
-        if _should_skip_http_access_log():
+    def _log_request_start():
+        g.request_start_time = time.perf_counter()
+        if request.path.startswith("/static") or request.path == "/favicon.ico":
             return
-        g._portal_req_t0 = time.perf_counter()
-
-    @app.after_request
-    def _portal_request_end(response):
-        if _should_skip_http_access_log():
-            return response
-        t0 = getattr(g, "_portal_req_t0", None)
-        elapsed_ms = (time.perf_counter() - t0) * 1000 if t0 is not None else -1.0
-        qraw = request.query_string.decode("utf-8", errors="replace") if request.query_string else ""
-        qshort = (qraw[:160] + "…") if len(qraw) > 160 else qraw
-        va = dict(request.view_args) if request.view_args else {}
-        remote = request.headers.get("X-Forwarded-For", request.remote_addr) or "-"
-        ua = (request.headers.get("User-Agent") or "")[:100]
-        app.logger.info(
-            "http: %s %s -> %s endpoint=%s view_args=%r query=%r remote=%s ua=%r %.1fms",
+        app.logger.debug(
+            "→ %s %s",
             request.method,
             request.path,
-            response.status_code,
-            request.endpoint,
-            va,
-            qshort,
-            remote,
-            ua,
-            elapsed_ms,
         )
+
+    @app.after_request
+    def _log_request_end(response):
+        if request.path.startswith("/static") or request.path == "/favicon.ico":
+            return response
+        start = getattr(g, "request_start_time", None)
+        if start is not None:
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            level = logging.WARNING if elapsed_ms > 3000 else logging.INFO
+            app.logger.log(
+                level,
+                "← %s %s [%d] %dms",
+                request.method,
+                request.path,
+                response.status_code,
+                elapsed_ms,
+            )
         return response
 
     def _portal_request_exception(sender, exc: BaseException, **_kwargs):
@@ -111,7 +127,6 @@ def create_app() -> Flask:
     # Config で既定化済み。ここでは明示的に Flask の永続セッション期限へ反映する。
     app.permanent_session_lifetime = app.config["PERMANENT_SESSION_LIFETIME"]
     _configure_logging(app)
-    _register_request_logging(app)
 
     db.init_app(app)
     migrate.init_app(app, db)
@@ -175,5 +190,7 @@ def create_app() -> Flask:
         from app.services.scheduler_runner import start_background_scheduler
 
         start_background_scheduler(app)
+
+    _register_request_logging(app)
 
     return app

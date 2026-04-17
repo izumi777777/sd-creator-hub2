@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from datetime import date, datetime
 
 from flask import (
@@ -417,25 +418,6 @@ def generate():
 
     character = Character.query.get_or_404(character_id)
 
-    logger.info(
-        "story.generate: リクエスト受付 character_id=%s name=%r premise_chars=%d "
-        "base_pos_chars=%d base_neg_chars=%d library_ids=%d num_chapters=%s",
-        character_id,
-        character.name,
-        len(premise),
-        len(base_free),
-        len(base_neg_free),
-        len(prompt_ids),
-        num_chapters,
-    )
-    if seasonal_on:
-        logger.info(
-            "story.generate: 季節テンプレ month=%s week=%s rotation_note_chars=%d",
-            season_m,
-            season_w,
-            len(rotation_note),
-        )
-
     ref_block, basis_snapshot = _build_reference_prompt_block(
         character_id, prompt_ids, base_free, base_neg_free
     )
@@ -470,12 +452,25 @@ LoRA 名（指定時は各シーン positive 末尾に lora:名:1 を付与）: 
     """.strip()
 
     max_tok = int(current_app.config.get("GEMINI_STORY_MAX_OUTPUT_TOKENS", 65536))
+    logger.info("=" * 50)
     logger.info(
-        "story.generate: Gemini JSON 生成を開始 max_output_tokens=%s "
-        "user_message_chars=%d（参照ブロック組み立て済み）",
-        max_tok,
-        len(user_message),
+        "ストーリー生成 開始 | キャラ=%r (id=%s) | 章数=%s | "
+        "あらすじ=%d文字 | ライブラリID数=%d",
+        character.name,
+        character_id,
+        num_chapters,
+        len(premise),
+        len(prompt_ids),
     )
+    if seasonal_on:
+        logger.info(
+            "  季節テンプレ: %d月 第%d週",
+            season_m,
+            season_w,
+        )
+
+    start = time.perf_counter()
+
     try:
         result = call_gemini_json(
             STORY_SYSTEM_PROMPT,
@@ -491,12 +486,18 @@ LoRA 名（指定時は各シーン positive 末尾に lora:名:1 を付与）: 
         result.setdefault("common_setting", "")
         _normalize_gemini_story(result)
         ch_count = len(result.get("chapters") or [])
+        narrative_chars = len(result.get("narrative") or "")
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
         logger.info(
-            "story.generate: 完了 title=%r chapters=%d narrative_chars=%d",
-            (result.get("title") or "")[:80],
+            "ストーリー生成 完了 ✓ | タイトル=%r | 章数=%d | "
+            "本文=%d文字 | %dms",
+            (result.get("title") or "")[:40],
             ch_count,
-            len(result.get("narrative") or ""),
+            narrative_chars,
+            elapsed_ms,
         )
+        logger.info("=" * 50)
+
         basis_for_save = ""
         if ref_block:
             basis_for_save = f"{basis_snapshot}\n\n---\n{ref_block}"[:65000]
@@ -523,7 +524,14 @@ LoRA 名（指定時は各シーン positive 末尾に lora:名:1 を付与）: 
             source_character_id=None,
         )
     except Exception as e:
-        logger.exception("story.generate: 失敗 character_id=%s", character_id)
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        logger.error(
+            "ストーリー生成 失敗 ✗ | キャラid=%s | %dms | %s",
+            character_id,
+            elapsed_ms,
+            e,
+        )
+        logger.info("=" * 50)
         return f'<p class="text-red-600 text-sm">生成エラー: {e}</p>', 500
 
 
@@ -580,6 +588,12 @@ def save():
         story.id,
         character_id,
         (title or "")[:80],
+    )
+    logger.info(
+        "ストーリー保存 完了 | id=%s | タイトル=%r | キャラid=%s",
+        story.id,
+        story.title,
+        story.character_id,
     )
     flash("ストーリーを保存しました。", "success")
     return redirect(url_for("story.index"))
@@ -859,6 +873,12 @@ def save_as_new(sid: int):
         new_story.id,
         (title or "")[:80],
     )
+    logger.info(
+        "ストーリー保存 完了 | id=%s | タイトル=%r | キャラid=%s",
+        new_story.id,
+        new_story.title,
+        new_story.character_id,
+    )
     flash(
         "新規ストーリーとして保存しました（元のストーリーは変更していません）。",
         "success",
@@ -932,6 +952,11 @@ def update(sid: int):
         sid,
         (title or "")[:80],
         len(chapters_store or ""),
+    )
+    logger.info(
+        "ストーリー更新 完了 | id=%s | タイトル=%r",
+        story.id,
+        story.title,
     )
     flash("ストーリーを更新しました。", "success")
     return redirect(url_for("story.detail", sid=sid))

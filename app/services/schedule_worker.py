@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta
 
 from flask import current_app
@@ -87,11 +88,29 @@ def run_due_jobs(*, max_per_tick: int = 3) -> int:
         .limit(max_per_tick)
         .all()
     )
+
+    if not due:
+        logger.debug("スケジューラ: 実行待ちジョブなし")
+        return 0
+
+    logger.info(
+        "スケジューラ: %d 件のジョブを実行開始",
+        len(due),
+    )
+
     done = 0
     for job in due:
         if not _claim_job(job, now):
             continue
         db.session.refresh(job)
+        job_start = time.perf_counter()
+        logger.info(
+            "ジョブ開始 | id=%s | story_id=%s | ch=%s | scheduled_at=%s",
+            job.id,
+            job.story_id,
+            job.ch_no,
+            job.scheduled_at,
+        )
         story = Story.query.get(job.story_id)
         character = Character.query.get(job.character_id)
         if not story or not character:
@@ -154,11 +173,33 @@ def run_due_jobs(*, max_per_tick: int = 3) -> int:
             )
             job.status = ScheduledImageJob.STATUS_DONE
             job.error_message = None
+            elapsed_ms = int((time.perf_counter() - job_start) * 1000)
+            logger.info(
+                "ジョブ完了 ✓ | id=%s | story_id=%s ch=%s | %dms",
+                job.id,
+                job.story_id,
+                job.ch_no,
+                elapsed_ms,
+            )
         except Exception as e:
-            logger.exception("schedule_worker: job %s failed", job.id)
+            elapsed_ms = int((time.perf_counter() - job_start) * 1000)
+            logger.exception(
+                "ジョブ失敗 ✗ | id=%s | story_id=%s ch=%s | %dms | %s",
+                job.id,
+                job.story_id,
+                job.ch_no,
+                elapsed_ms,
+                e,
+            )
             job.status = ScheduledImageJob.STATUS_FAILED
             job.error_message = str(e)[:8000]
+
         job.completed_at = utc_now_naive()
         db.session.commit()
         done += 1
+
+    logger.info(
+        "スケジューラ: %d 件完了",
+        done,
+    )
     return done
