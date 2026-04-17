@@ -38,7 +38,9 @@ class ScheduledImageJob(db.Model):
     hr_second_pass_steps = db.Column(db.Integer, nullable=False, default=0)
     hr_upscaler = db.Column(db.String(120), nullable=True)
     seed = db.Column(db.Integer, nullable=True)
-    # 画像テキスト焼き込み: 0 のとき下段のセリフ（speech）のみ省略（上段 title/scene は従来どおり）
+    # 画像テキスト焼き込み: 0 のとき上段（title/scene）を省略
+    overlay_include_top_story = db.Column(db.Boolean, nullable=False, default=True)
+    # 画像テキスト焼き込み: 0 のとき下段のセリフ（speech）のみ省略（上段は設定に従う）
     overlay_include_speech = db.Column(db.Boolean, nullable=False, default=True)
     # NULL=章の speech。0〜9=ストーリー speech_presets_json の該当枠（空なら章にフォールバック）
     speech_preset_index = db.Column(db.Integer, nullable=True)

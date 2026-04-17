@@ -33,6 +33,14 @@ def is_s3_configured() -> bool:
         return False
 
 
+def _s3_endpoint_url() -> str | None:
+    raw = current_app.config.get("AWS_S3_ENDPOINT_URL")
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    return s or None
+
+
 def get_s3_client() -> Any:
     """S3 クライアントを取得する。"""
     bucket = current_app.config.get("AWS_S3_BUCKET")
@@ -41,10 +49,11 @@ def get_s3_client() -> Any:
 
     region = current_app.config["AWS_S3_REGION"]
     profile = current_app.config.get("AWS_PROFILE")
+    endpoint_url = _s3_endpoint_url()
 
     if profile:
         session = boto3.Session(profile_name=profile, region_name=region)
-        return session.client("s3")
+        return session.client("s3", endpoint_url=endpoint_url)
 
     key_id = current_app.config.get("AWS_ACCESS_KEY_ID")
     secret = current_app.config.get("AWS_SECRET_ACCESS_KEY")
@@ -54,6 +63,7 @@ def get_s3_client() -> Any:
             aws_access_key_id=key_id,
             aws_secret_access_key=secret,
             region_name=region,
+            endpoint_url=endpoint_url,
         )
 
     # 環境変数・コンテナロール・default プロファイルなどチェーンに任せる
@@ -64,7 +74,7 @@ def get_s3_client() -> Any:
             " AWS_PROFILE を設定するか、AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY、"
             "または default クレデンシャルを設定してください。"
         )
-    return session.client("s3")
+    return session.client("s3", endpoint_url=endpoint_url)
 
 
 def upload_image(file_obj: Any, s3_key: str, content_type: str = "image/png") -> str:
@@ -139,14 +149,57 @@ def download_object_bytes(s3_key: str) -> bytes:
     return resp["Body"].read()
 
 
-def _key_from_virtual_hosted_s3_url(url: str) -> str | None:
-    """ポータルが保存する公開 URL 形式からオブジェクトキーを取り出す。"""
+def _key_from_stored_s3_url(url: str, *, expected_bucket: str) -> str | None:
+    """
+    DB に保存された S3 公開 URL からオブジェクトキーを取り出す。
+
+    仮想ホスト形式（bucket.s3.region.amazonaws.com/key）に加え、
+    パス形式（s3.region.amazonaws.com/bucket/key および s3-region.amazonaws.com）も扱う。
+    想定バケットと一致しないパス形式は無視する（誤候補を増やさない）。
+    """
     raw = (url or "").strip()
     if not raw.lower().startswith("http"):
         return None
+    bucket = (expected_bucket or "").strip()
     try:
         p = urlparse(raw)
-        path = unquote(p.path or "").lstrip("/")
+        host = (p.hostname or "").lower()
+        path = unquote((p.path or "").strip("/"))
+        if not host or not path:
+            return None
+
+        # --- パス形式（先頭セグメントがバケット名）---
+        if host == "s3.amazonaws.com":
+            parts = path.split("/", 1)
+            if len(parts) == 2 and parts[0] == bucket:
+                return parts[1] or None
+            return None
+        if host.startswith("s3.") and not host.startswith("s3.amazonaws.com"):
+            # s3.<region>.amazonaws.com
+            parts = path.split("/", 1)
+            if len(parts) == 2 and parts[0] == bucket:
+                return parts[1] or None
+            return None
+        if host.startswith("s3-"):
+            # s3-ap-northeast-1.amazonaws.com 等
+            parts = path.split("/", 1)
+            if len(parts) == 2 and parts[0] == bucket:
+                return parts[1] or None
+            return None
+
+        # --- 仮想ホスト形式: <bucket>.s3...amazonaws.com/<key> ---
+        if ".s3." not in host:
+            return None
+        bucket_from_host, _, _ = host.partition(".s3.")
+        if not bucket_from_host or bucket_from_host == "s3":
+            return None
+        # 別バケットの URL でも、キー部分（パス）は同一レイアウトで移行されることが多い
+        if bucket and bucket_from_host != bucket:
+            logger.info(
+                "s3_service: s3_url のホストバケットが設定と異なりますがキー候補としてパスを使います host_bucket=%r expected=%r",
+                bucket_from_host,
+                bucket,
+            )
         return path or None
     except Exception:
         return None
@@ -197,7 +250,12 @@ def portal_image_s3_key_try_list(
         return []
 
     candidates: list[str] = [pk]
-    url_key = _key_from_virtual_hosted_s3_url(s3_url or "")
+    bucket = (current_app.config.get("AWS_S3_BUCKET") or "").strip()
+    url_key = (
+        _key_from_stored_s3_url(s3_url or "", expected_bucket=bucket)
+        if bucket
+        else None
+    )
     if url_key and url_key != pk:
         candidates.append(url_key)
     fn = (file_name or "").strip().lstrip("/")
@@ -224,13 +282,70 @@ def portal_image_s3_key_try_list(
     return _dedupe_keys(expanded)
 
 
+def _s3_object_exists_head_or_get_range(s3: Any, bucket: str, key: str) -> bool:
+    """
+    キーにオブジェクトが存在するか判定する。
+
+    IAM で s3:HeadObject が付与されていないポリシーでは Head が 403 になり、
+    従来実装は例外のままプレビューが 502 になっていた。s3:GetObject だけある場合は
+    GetObject(Range=先頭1バイト) で代替確認する。
+    """
+    try:
+        s3.head_object(Bucket=bucket, Key=key)
+        return True
+    except ClientError as e:
+        err = e.response.get("Error") or {}
+        code = str(err.get("Code", "") or "")
+        status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if code in ("NoSuchKey", "404", "NotFound"):
+            return False
+        head_blocked = code in ("AccessDenied", "Forbidden") or status in (401, 403)
+        if not head_blocked:
+            raise
+        logger.info(
+            "s3_service: HeadObject が拒否のため GetObject(Range) で存在確認 key=%r code=%r",
+            key,
+            code or status,
+        )
+        try:
+            resp = s3.get_object(Bucket=bucket, Key=key, Range="bytes=0-0")
+            body = resp["Body"]
+            try:
+                body.read(1)
+            finally:
+                body.close()
+            return True
+        except ClientError as e2:
+            err2 = e2.response.get("Error") or {}
+            code2 = str(err2.get("Code", "") or "")
+            status2 = e2.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if code2 in ("NoSuchKey", "404", "NotFound"):
+                return False
+            # 0 バイトオブジェクト等で Range が効かない場合
+            if code2 == "InvalidRange" or status2 == 416:
+                try:
+                    resp = s3.get_object(Bucket=bucket, Key=key)
+                    body = resp["Body"]
+                    try:
+                        body.read()
+                    finally:
+                        body.close()
+                    return True
+                except ClientError as e3:
+                    c3 = str((e3.response.get("Error") or {}).get("Code", "") or "")
+                    if c3 in ("NoSuchKey", "404", "NotFound"):
+                        return False
+                    raise
+            raise
+
+
 def find_existing_portal_image_s3_key(
     primary_key: str,
     *,
     file_name: str | None = None,
     s3_url: str | None = None,
 ) -> str | None:
-    """head_object で最初に存在するキーを返す（プレビュー用の署名 URL 生成など）。"""
+    """HeadObject（または GetObject の軽い取得）で最初に存在するキーを返す。"""
     try_list = portal_image_s3_key_try_list(
         primary_key, file_name=file_name, s3_url=s3_url
     )
@@ -240,8 +355,7 @@ def find_existing_portal_image_s3_key(
     bucket = current_app.config["AWS_S3_BUCKET"]
     pk = (primary_key or "").strip()
     for k in try_list:
-        try:
-            s3.head_object(Bucket=bucket, Key=k)
+        if _s3_object_exists_head_or_get_range(s3, bucket, k):
             if k != pk:
                 logger.warning(
                     "s3_service: DB の s3_key と実体が一致せず別キーで解決。db=%r actual=%r",
@@ -249,11 +363,6 @@ def find_existing_portal_image_s3_key(
                     k,
                 )
             return k
-        except ClientError as e:
-            code = (e.response.get("Error") or {}).get("Code", "")
-            if code in ("NoSuchKey", "404", "NotFound"):
-                continue
-            raise
     return None
 
 

@@ -7,6 +7,7 @@ from typing import Any
 from flask import (
     Blueprint,
     abort,
+    current_app,
     flash,
     jsonify,
     redirect,
@@ -14,6 +15,7 @@ from flask import (
     request,
     url_for,
 )
+from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
 from app import db
@@ -311,7 +313,10 @@ def preview(iid: int):
             abort(404)
         url = s3_service.get_presigned_url(key, expiration=3600)
         return redirect(url, code=302)
+    except HTTPException:
+        raise
     except Exception:
+        current_app.logger.exception("image preview: S3 解決または署名付き URL 生成に失敗 iid=%s", iid)
         abort(502)
 
 
@@ -334,7 +339,10 @@ def download(iid: int):
             key, download_filename=hint, expiration=3600
         )
         return redirect(url, code=302)
+    except HTTPException:
+        raise
     except Exception:
+        current_app.logger.exception("image download: S3 解決または署名付き URL 生成に失敗 iid=%s", iid)
         abort(502)
 
 

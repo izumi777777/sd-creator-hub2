@@ -322,6 +322,7 @@ def generate_chapter_images(
     hr_denoising_strength: Any = None,
     hr_second_pass_steps: Any = None,
     hr_upscaler: Any = None,
+    overlay_include_top_story: bool = True,
     overlay_include_speech: bool = True,
     speech_bottom_override: str | None = None,
 ) -> list[tuple[Image, Image]]:
@@ -329,8 +330,8 @@ def generate_chapter_images(
     Web UI で txt2img し、返却された各画像について
     メタ付き原本 + メタ除去版を S3 に置き、(Image, Image) のタプルを枚数分返す。
 
-    overlay_include_speech が False のとき、テキスト焼き込みは上段（title/scene）のみとし
-    下段の speech は載せない（STORY_IMAGE_TEXT_OVERLAY がオンの場合のみ意味がある）。
+    overlay_include_top_story が False のとき、上段（title/scene）を載せない。
+    overlay_include_speech が False のとき、下段の speech を載せない。
     speech_bottom_override が非空のとき、下段は章の speech の代わりにその文字列を使う。
     """
     if story.character_id != character.id:
@@ -394,6 +395,8 @@ def generate_chapter_images(
     top_overlay, bottom_overlay = resolve_chapter_story_overlay_texts(
         chapters, ch_no, variant_index, include_chapter_title=True
     )
+    if not overlay_include_top_story:
+        top_overlay = ""
     if (
         overlay_include_speech
         and speech_bottom_override is not None

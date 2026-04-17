@@ -81,6 +81,9 @@ def run_due_jobs(*, max_per_tick: int = 3) -> int:
         hr_2steps = getattr(job, "hr_second_pass_steps", None)
         hr_up = getattr(job, "hr_upscaler", None)
         try:
+            include_top_story = getattr(
+                job, "overlay_include_top_story", True
+            )
             include_speech = getattr(
                 job, "overlay_include_speech", True
             )
@@ -108,6 +111,7 @@ def run_due_jobs(*, max_per_tick: int = 3) -> int:
                 hr_denoising_strength=hr_denoising,
                 hr_second_pass_steps=hr_2steps,
                 hr_upscaler=hr_up,
+                overlay_include_top_story=bool(include_top_story),
                 overlay_include_speech=bool(include_speech),
                 speech_bottom_override=speech_override,
             )

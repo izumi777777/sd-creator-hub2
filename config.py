@@ -10,13 +10,19 @@ _root = Path(__file__).resolve().parent
 load_dotenv(_root / ".env")
 load_dotenv()  # 環境変数が既にあればそちらを優先
 
+# Flask の慣例どおり、DATABASE_URL 未指定時は instance 配下の SQLite（cwd に依存しない）
+_instance_dir = _root / "instance"
+_instance_dir.mkdir(parents=True, exist_ok=True)
+_default_sqlite_path = (_instance_dir / "creator_portal.db").resolve()
+_DEFAULT_DATABASE_URL = f"sqlite:///{_default_sqlite_path.as_posix()}"
+
 
 class Config:
     """アプリケーション設定。"""
 
     SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "dev-key-change-in-production")
     SQLALCHEMY_DATABASE_URI = os.environ.get(
-        "DATABASE_URL", "sqlite:///creator_portal.db"
+        "DATABASE_URL", _DEFAULT_DATABASE_URL
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     # Google Gemini（AI Studio の API キー。GOOGLE_API_KEY でも可）
@@ -44,6 +50,9 @@ class Config:
         "AWS_S3_BUCKET", "stable-diffusion-ai-illustration-media"
     )
     AWS_S3_REGION = os.environ.get("AWS_S3_REGION", "ap-northeast-1")
+    # MinIO / LocalStack / PrivateLink 等（未設定なら AWS 本番向け既定エンドポイント）
+    _ep = (os.environ.get("AWS_S3_ENDPOINT_URL") or "").strip()
+    AWS_S3_ENDPOINT_URL = _ep or None
 
     # AUTOMATIC1111（EC2 等）の REST API。未設定なら章からの API 生成は無効。
     SD_WEBUI_BASE_URL = (os.environ.get("SD_WEBUI_BASE_URL") or "").strip().rstrip("/")

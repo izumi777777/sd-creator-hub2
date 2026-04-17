@@ -180,6 +180,7 @@ def _persist_sd_generate_session(sid: int, ch_no: int, variant_index: int | None
         "hr_second_pass_steps": (request.form.get("hr_second_pass_steps") or "").strip() or "0",
         "hr_upscaler": (request.form.get("hr_upscaler") or "").strip(),
         "seed": (request.form.get("seed") or "").strip() or "-1",
+        "overlay_include_top_story": "1" if _parse_overlay_include_top_story() else "0",
         "overlay_include_speech": "1" if _parse_overlay_include_speech() else "0",
         "speech_preset_index": (request.form.get("speech_preset_index") or "").strip(),
     }
@@ -206,6 +207,7 @@ def _persist_sd_schedule_session(sid: int, ch_no: int, variant_index: int | None
         "hr_second_pass_steps": (request.form.get("hr_second_pass_steps") or "").strip() or "0",
         "hr_upscaler": (request.form.get("hr_upscaler") or "").strip(),
         "seed": (request.form.get("seed") or "").strip() or "-1",
+        "overlay_include_top_story": "1" if _parse_overlay_include_top_story() else "0",
         "overlay_include_speech": "1" if _parse_overlay_include_speech() else "0",
         "speech_preset_index": (request.form.get("speech_preset_index") or "").strip(),
     }
@@ -1139,6 +1141,7 @@ def schedule_chapter_image(sid: int):
         hr_second_pass_steps=hr_second_pass_steps,
         hr_upscaler=hr_upscaler,
         seed=(seed if seed >= 0 else None),
+        overlay_include_top_story=_parse_overlay_include_top_story(),
         overlay_include_speech=_parse_overlay_include_speech(),
         speech_preset_index=_parse_speech_preset_index_form(),
         scheduled_at=scheduled_at,
@@ -1371,6 +1374,7 @@ def generate_chapter_image(sid: int):
             hr_denoising_strength=hr_denoising_strength,
             hr_second_pass_steps=hr_second_pass_steps,
             hr_upscaler=hr_upscaler,
+            overlay_include_top_story=_parse_overlay_include_top_story(),
             overlay_include_speech=_parse_overlay_include_speech(),
             speech_bottom_override=speech_override,
         )
