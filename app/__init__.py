@@ -1,15 +1,32 @@
 """Flask アプリケーションのファクトリ。"""
 
 import logging
+import sqlite3
 
 from flask import Flask
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 
 from config import Config
 
 db = SQLAlchemy()
 migrate = Migrate()
+
+
+@event.listens_for(Engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, connection_record):
+    """SQLite 接続時に WAL 等の PRAGMA を付与（PostgreSQL 等では何もしない）。"""
+    if not isinstance(dbapi_connection, sqlite3.Connection):
+        return
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA cache_size=-65536")
+    cursor.execute("PRAGMA temp_store=MEMORY")
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 def _configure_logging(app: Flask) -> None:
@@ -30,6 +47,8 @@ def create_app() -> Flask:
     """Flask アプリを初期化して返す。"""
     app = Flask(__name__)
     app.config.from_object(Config)
+    # Config で既定化済み。ここでは明示的に Flask の永続セッション期限へ反映する。
+    app.permanent_session_lifetime = app.config["PERMANENT_SESSION_LIFETIME"]
     _configure_logging(app)
 
     db.init_app(app)

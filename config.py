@@ -1,6 +1,7 @@
 """アプリケーション設定を読み込むモジュール。"""
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -165,6 +166,21 @@ class Config:
         or OPS_CONSOLE_NO_PASSWORD
     )
     OPS_CONSOLE_ENABLED = bool(OPS_CONSOLE_TOKEN) or OPS_CONSOLE_NO_PASSWORD
+
+    # セッション寿命（長期運用で SD フォーム用キーが増え続ける対策と併用）
+    _perm_sess_s = os.environ.get("PERMANENT_SESSION_LIFETIME_SECONDS", "86400")
+    try:
+        _perm_sess = int(_perm_sess_s)
+    except ValueError:
+        _perm_sess = 86400
+    PERMANENT_SESSION_LIFETIME = timedelta(seconds=max(300, min(_perm_sess, 2592000)))
+    # 本番 HTTPS では SESSION_COOKIE_SECURE=1 を推奨（未設定時はローカル HTTP 向けに False）
+    SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
     # インフラ画面の USD→JPY 表示用（任意。未設定なら円は出さない）
     _ops_jpy_raw = (os.environ.get("OPS_BILLING_USD_TO_JPY") or "").strip()

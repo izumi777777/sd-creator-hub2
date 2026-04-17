@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import logging
+from functools import lru_cache
 from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
@@ -42,6 +43,12 @@ def _load_font(path: str | None, size: int) -> ImageFont.ImageFont:
             continue
     logger.warning("chapter_image_overlay: 日本語フォントが見つかりません。ビットマップフォントにフォールバックします。")
     return ImageFont.load_default()
+
+
+@lru_cache(maxsize=32)
+def _load_font_cached(path: str | None, size: int) -> ImageFont.ImageFont:
+    """同じ path + size のフォントはディスクから1回だけ読み込む。"""
+    return _load_font(path, size)
 
 
 def _text_line_width(draw: ImageDraw.ImageDraw, line: str, font: ImageFont.ImageFont) -> float:
@@ -134,7 +141,7 @@ def _compose_overlay_rgba(
     # セリフは既定をやや小さくし、ピクセル折り返し＋フォント縮小で帯内に収める
     dial_max = max(18, min(36, img_w // 18))
 
-    font_top = _load_font(font_path, narr_size)
+    font_top = _load_font_cached(font_path, narr_size)
     measure_draw = ImageDraw.Draw(Image.new("RGB", (max(int(max_text_w) + 8, 64), 64)))
 
     overlay = base_rgba.copy()
@@ -177,7 +184,7 @@ def _compose_overlay_rgba(
         line_h = 14
         dial_start = max(10, dial_max)
         for fs in range(dial_start, 8, -1):
-            font_bottom = _load_font(font_path, fs)
+            font_bottom = _load_font_cached(font_path, fs)
             dial_lines = _wrap_block_to_max_pixel_width(
                 bottom_text.strip(), font_bottom, max_text_w, measure_draw
             )
@@ -193,7 +200,7 @@ def _compose_overlay_rgba(
             if need_h <= max_band_h + 8:
                 break
         if font_bottom is None:
-            font_bottom = _load_font(font_path, 10)
+            font_bottom = _load_font_cached(font_path, 10)
             dial_lines = _wrap_block_to_max_pixel_width(
                 bottom_text.strip(), font_bottom, max_text_w, measure_draw
             )[:_MAX_BOTTOM_LINES]

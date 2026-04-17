@@ -8,7 +8,7 @@ from urllib.parse import quote, unquote, urlparse
 
 import boto3
 from botocore.exceptions import ClientError
-from flask import current_app
+from flask import current_app, g, has_request_context
 from werkzeug.utils import secure_filename
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,10 @@ def _s3_endpoint_url() -> str | None:
 
 
 def get_s3_client() -> Any:
-    """S3 クライアントを取得する。"""
+    """S3 クライアントを取得する（HTTP リクエスト内では g にキャッシュして再利用）。"""
+    if has_request_context() and "s3_client" in g:
+        return g.s3_client
+
     bucket = current_app.config.get("AWS_S3_BUCKET")
     if not bucket:
         raise ValueError("AWS_S3_BUCKET が設定されていません。")
@@ -55,28 +58,31 @@ def get_s3_client() -> Any:
 
     if profile:
         session = boto3.Session(profile_name=profile, region_name=region)
-        return session.client("s3", endpoint_url=endpoint_url)
+        client = session.client("s3", endpoint_url=endpoint_url)
+    else:
+        key_id = current_app.config.get("AWS_ACCESS_KEY_ID")
+        secret = current_app.config.get("AWS_SECRET_ACCESS_KEY")
+        if key_id and secret:
+            client = boto3.client(
+                "s3",
+                aws_access_key_id=key_id,
+                aws_secret_access_key=secret,
+                region_name=region,
+                endpoint_url=endpoint_url,
+            )
+        else:
+            session = boto3.Session(region_name=region)
+            if not session.get_credentials():
+                raise ValueError(
+                    "S3 用の認証情報がありません。"
+                    " AWS_PROFILE を設定するか、AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY、"
+                    "または default クレデンシャルを設定してください。"
+                )
+            client = session.client("s3", endpoint_url=endpoint_url)
 
-    key_id = current_app.config.get("AWS_ACCESS_KEY_ID")
-    secret = current_app.config.get("AWS_SECRET_ACCESS_KEY")
-    if key_id and secret:
-        return boto3.client(
-            "s3",
-            aws_access_key_id=key_id,
-            aws_secret_access_key=secret,
-            region_name=region,
-            endpoint_url=endpoint_url,
-        )
-
-    # 環境変数・コンテナロール・default プロファイルなどチェーンに任せる
-    session = boto3.Session(region_name=region)
-    if not session.get_credentials():
-        raise ValueError(
-            "S3 用の認証情報がありません。"
-            " AWS_PROFILE を設定するか、AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY、"
-            "または default クレデンシャルを設定してください。"
-        )
-    return session.client("s3", endpoint_url=endpoint_url)
+    if has_request_context():
+        g.s3_client = client
+    return client
 
 
 def upload_image(file_obj: Any, s3_key: str, content_type: str = "image/png") -> str:
@@ -435,11 +441,16 @@ def _batch_presign_worker(
     expiration: int,
 ) -> tuple[int, str | None, str, str]:
     """
-    1 画像分のキー解決と署名 URL 生成（スレッド用）。
+    1 画像分の署名 URL 生成（スレッド用）。
+
+    HeadObject / GetObject は行わず、DB の s3_key でローカル HMAC のみ（generate_presigned_url）。
+    キーが古く 403 のときはテンプレの img onerror で /image/<id>/preview にフォールバック。
+    file_name / s3_url は互換用（未使用）。
 
     Returns:
         (image_id, resolved_key or None, original_pk, presigned_url or "")
     """
+    _ = file_name, s3_url
     orig = (pk or "").strip()
     if not orig:
         return (iid, None, orig, "")
@@ -447,15 +458,8 @@ def _batch_presign_worker(
         try:
             if not is_s3_configured():
                 return (iid, None, orig, "")
-            resolved = find_existing_portal_image_s3_key(
-                orig,
-                file_name=file_name,
-                s3_url=s3_url,
-            )
-            if not resolved:
-                return (iid, None, orig, "")
-            url = get_presigned_url(resolved, expiration=expiration)
-            return (iid, resolved, orig, url)
+            url = get_presigned_url(orig, expiration=expiration)
+            return (iid, orig, orig, url)
         except Exception:
             logger.exception(
                 "batch_presigned_portal_image_view_urls: skip image id=%s",
@@ -484,35 +488,27 @@ def batch_presigned_portal_image_view_urls(
     """
     一覧・ギャラリー描画用に、Image 行の id → 署名付き GET URL をまとめて返す。
 
-    ブラウザが画像ごとに /image/<id>/preview を叩くと、その都度 S3 でキー解決が走る。
-    本関数でページ描画時に一度だけ解決・署名して img に埋め込むと往復は減る。
-    画像件数ぶん S3 に触れるため ThreadPoolExecutor（max_workers=10）で並列化し、
-    呼び出し側でも件数上限を設けること（全件は重い）。
+    HeadObject は行わず generate_presigned_url のみ（S3 通信ゼロ・ローカル HMAC）。
+    古い DB キーで署名が無効な場合はテンプレの img onerror で /image/<id>/preview へ。
 
-    失敗した行は辞書に含めない（テンプレ側で preview ルートにフォールバック）。
-    DB の s3_key と実体が異なる場合、sync_resolved_key_to_db が真なら解決後キーを DB に反映する。
+    sync_resolved_key_to_db は後方互換のため残すが、本バッチでは DB を更新しない。
     """
+    _ = sync_resolved_key_to_db  # 呼び出し側キーワード互換（キー解決は preview ルート）
     if not is_s3_configured():
         return {}
 
-    from app import db
-
     app = current_app._get_current_object()
-    images_list = list(images)
     rows: list[tuple[int, str, str | None, str | None]] = []
-    id_to_img: dict[int, Any] = {}
-    for img in images_list:
+    for img in images:
         iid = getattr(img, "id", None)
         if iid is None:
             continue
         pk = (getattr(img, "s3_key", None) or "").strip()
         if not pk:
             continue
-        tid = int(iid)
-        id_to_img[tid] = img
         rows.append(
             (
-                tid,
+                int(iid),
                 pk,
                 getattr(img, "file_name", None),
                 getattr(img, "s3_url", None),
@@ -520,7 +516,6 @@ def batch_presigned_portal_image_view_urls(
         )
 
     out: dict[int, str] = {}
-    dirty = False
     if rows:
         with ThreadPoolExecutor(max_workers=10) as executor:
             futures = [
@@ -536,26 +531,9 @@ def batch_presigned_portal_image_view_urls(
                 for tid, pk, fn, su in rows
             ]
             for fut in as_completed(futures):
-                iid, resolved, orig_pk, url = fut.result()
+                iid, _resolved, _orig_pk, url = fut.result()
                 if url:
                     out[iid] = url
-                if (
-                    sync_resolved_key_to_db
-                    and resolved
-                    and orig_pk
-                    and resolved != orig_pk
-                ):
-                    im = id_to_img.get(iid)
-                    if im is not None:
-                        im.s3_key = resolved
-                        dirty = True
-
-    if dirty and sync_resolved_key_to_db:
-        try:
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-            logger.exception("batch_presigned_portal_image_view_urls: DB commit に失敗")
 
     return out
 

@@ -10,6 +10,21 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
+# Gemini クライアントをシングルトン化（都度 new/close のオーバーヘッドを避ける）
+_gemini_client: Any | None = None
+_gemini_client_api_key: str | None = None
+# 成功したモデル名をキャッシュし、次回以降の試行順を短くする
+_last_successful_model: str | None = None
+
+
+def _get_gemini_client(api_key: str) -> Any:
+    """Gemini クライアントをシングルトンで返す。API キーが変わったときだけ再作成する。"""
+    global _gemini_client, _gemini_client_api_key
+    if _gemini_client is None or _gemini_client_api_key != api_key:
+        _gemini_client = genai.Client(api_key=api_key)
+        _gemini_client_api_key = api_key
+    return _gemini_client
+
 _FINISH_OK = frozenset(
     (
         "FinishReason.STOP",
@@ -112,6 +127,9 @@ def _gemini_model_names() -> list[str]:
     ]
     seen: set[str] = set()
     out: list[str] = []
+    if _last_successful_model and _last_successful_model not in seen:
+        seen.add(_last_successful_model)
+        out.append(_last_successful_model)
     for m in fallback_models:
         if m not in seen:
             seen.add(m)
@@ -129,6 +147,7 @@ def call_gemini_text(
     """
     Gemini をプレーンテキストで呼び出し、本文を返す（相談チャット用）。
     """
+    global _last_successful_model
     api_key = current_app.config.get("GEMINI_API_KEY") or current_app.config.get(
         "GOOGLE_API_KEY"
     )
@@ -147,62 +166,58 @@ def call_gemini_text(
         len(system),
     )
 
-    client = genai.Client(api_key=api_key)
+    client = _get_gemini_client(api_key)
     errors: list[str] = []
-    try:
-        for model_name in model_names:
-            logger.info("%s: 試行 model=%s (plain)", log_label, model_name)
-            try:
-                cfg = types.GenerateContentConfig(
-                    system_instruction=system,
-                    max_output_tokens=max_tokens,
-                )
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=user_message,
-                    config=cfg,
-                )
-                text = _extract_response_text(response)
-            except Exception as e:
-                errors.append(f"{model_name}: {e}")
-                logger.warning(
-                    "%s: 試行失敗 model=%s %s",
-                    log_label,
-                    model_name,
-                    _short_err(e),
-                )
-                continue
+    for model_name in model_names:
+        logger.info("%s: 試行 model=%s (plain)", log_label, model_name)
+        try:
+            cfg = types.GenerateContentConfig(
+                system_instruction=system,
+                max_output_tokens=max_tokens,
+            )
+            response = client.models.generate_content(
+                model=model_name,
+                contents=user_message,
+                config=cfg,
+            )
+            text = _extract_response_text(response)
+        except Exception as e:
+            errors.append(f"{model_name}: {e}")
+            logger.warning(
+                "%s: 試行失敗 model=%s %s",
+                log_label,
+                model_name,
+                _short_err(e),
+            )
+            continue
 
-            if text and text.strip():
-                logger.info(
-                    "%s: 成功 model=%s 応答_chars≈%d",
-                    log_label,
-                    model_name,
-                    len(text),
-                )
-                return text.strip()
+        if text and text.strip():
+            logger.info(
+                "%s: 成功 model=%s 応答_chars≈%d",
+                log_label,
+                model_name,
+                len(text),
+            )
+            _last_successful_model = model_name
+            return text.strip()
 
-            errors.append(f"{model_name}: 空の応答")
-            logger.warning("%s: 空の応答 model=%s", log_label, model_name)
+        errors.append(f"{model_name}: 空の応答")
+        logger.warning("%s: 空の応答 model=%s", log_label, model_name)
 
-        detail = "\n".join(errors[:15])
-        if len(errors) > 15:
-            detail += f"\n… ほか {len(errors) - 15} 件"
-        hint = _gemini_errors_user_hint(errors)
-        head = (
-            "Gemini からテキスト応答を得られませんでした。"
-            f" 試したモデル: {', '.join(model_names)}。"
-        )
-        if hint:
-            head = hint + "\n\n" + head
-        else:
-            head += " .env の GEMINI_MODEL やネットワークを確認してください。"
-        logger.error(
-            "%s: 全試行失敗 attempts=%d", log_label, len(errors)
-        )
-        raise ValueError(f"{head}\n----\n{detail}")
-    finally:
-        client.close()
+    detail = "\n".join(errors[:15])
+    if len(errors) > 15:
+        detail += f"\n… ほか {len(errors) - 15} 件"
+    hint = _gemini_errors_user_hint(errors)
+    head = (
+        "Gemini からテキスト応答を得られませんでした。"
+        f" 試したモデル: {', '.join(model_names)}。"
+    )
+    if hint:
+        head = hint + "\n\n" + head
+    else:
+        head += " .env の GEMINI_MODEL やネットワークを確認してください。"
+    logger.error("%s: 全試行失敗 attempts=%d", log_label, len(errors))
+    raise ValueError(f"{head}\n----\n{detail}")
 
 
 def call_gemini_chat(
@@ -215,6 +230,7 @@ def call_gemini_chat(
     """
     マルチターン会話用。contents は google.genai.types.Content のリスト（user / model 交互）。
     """
+    global _last_successful_model
     api_key = current_app.config.get("GEMINI_API_KEY") or current_app.config.get(
         "GOOGLE_API_KEY"
     )
@@ -240,60 +256,58 @@ def call_gemini_chat(
         model_names,
     )
 
-    client = genai.Client(api_key=api_key)
+    client = _get_gemini_client(api_key)
     errors: list[str] = []
-    try:
-        for model_name in model_names:
-            logger.info("%s: 試行 model=%s (chat)", log_label, model_name)
-            try:
-                cfg = types.GenerateContentConfig(
-                    system_instruction=system,
-                    max_output_tokens=max_tokens,
-                )
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                    config=cfg,
-                )
-                text = _extract_response_text(response)
-            except Exception as e:
-                errors.append(f"{model_name}: {e}")
-                logger.warning(
-                    "%s: 試行失敗 model=%s %s",
-                    log_label,
-                    model_name,
-                    _short_err(e),
-                )
-                continue
+    for model_name in model_names:
+        logger.info("%s: 試行 model=%s (chat)", log_label, model_name)
+        try:
+            cfg = types.GenerateContentConfig(
+                system_instruction=system,
+                max_output_tokens=max_tokens,
+            )
+            response = client.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=cfg,
+            )
+            text = _extract_response_text(response)
+        except Exception as e:
+            errors.append(f"{model_name}: {e}")
+            logger.warning(
+                "%s: 試行失敗 model=%s %s",
+                log_label,
+                model_name,
+                _short_err(e),
+            )
+            continue
 
-            if text and text.strip():
-                logger.info(
-                    "%s: 成功 model=%s 応答_chars≈%d",
-                    log_label,
-                    model_name,
-                    len(text),
-                )
-                return text.strip()
+        if text and text.strip():
+            logger.info(
+                "%s: 成功 model=%s 応答_chars≈%d",
+                log_label,
+                model_name,
+                len(text),
+            )
+            _last_successful_model = model_name
+            return text.strip()
 
-            errors.append(f"{model_name}: 空の応答")
-            logger.warning("%s: 空の応答 model=%s", log_label, model_name)
+        errors.append(f"{model_name}: 空の応答")
+        logger.warning("%s: 空の応答 model=%s", log_label, model_name)
 
-        detail = "\n".join(errors[:15])
-        if len(errors) > 15:
-            detail += f"\n… ほか {len(errors) - 15} 件"
-        hint = _gemini_errors_user_hint(errors)
-        head = (
-            "Gemini からテキスト応答を得られませんでした。"
-            f" 試したモデル: {', '.join(model_names)}。"
-        )
-        if hint:
-            head = hint + "\n\n" + head
-        else:
-            head += " .env の GEMINI_MODEL やネットワークを確認してください。"
-        logger.error("%s: 全試行失敗 attempts=%d", log_label, len(errors))
-        raise ValueError(f"{head}\n----\n{detail}")
-    finally:
-        client.close()
+    detail = "\n".join(errors[:15])
+    if len(errors) > 15:
+        detail += f"\n… ほか {len(errors) - 15} 件"
+    hint = _gemini_errors_user_hint(errors)
+    head = (
+        "Gemini からテキスト応答を得られませんでした。"
+        f" 試したモデル: {', '.join(model_names)}。"
+    )
+    if hint:
+        head = hint + "\n\n" + head
+    else:
+        head += " .env の GEMINI_MODEL やネットワークを確認してください。"
+    logger.error("%s: 全試行失敗 attempts=%d", log_label, len(errors))
+    raise ValueError(f"{head}\n----\n{detail}")
 
 
 def call_gemini_json(
@@ -321,6 +335,7 @@ def call_gemini_json(
     Raises:
         ValueError: API キー未設定・JSON パース失敗・応答がオブジェクトでない場合
     """
+    global _last_successful_model
     api_key = current_app.config.get("GEMINI_API_KEY") or current_app.config.get(
         "GOOGLE_API_KEY"
     )
@@ -340,106 +355,102 @@ def call_gemini_json(
         len(system),
     )
 
-    client = genai.Client(api_key=api_key)
+    client = _get_gemini_client(api_key)
     errors: list[str] = []
-    try:
-        for model_name in model_names:
-            for use_json in (True, False):
-                label = "json" if use_json else "plain"
-                logger.info("%s: 試行 model=%s mode=%s", log_label, model_name, label)
-                try:
-                    kwargs: dict[str, Any] = {
-                        "system_instruction": system,
-                        "max_output_tokens": max_tokens,
-                    }
-                    if use_json:
-                        kwargs["response_mime_type"] = "application/json"
-                    cfg = types.GenerateContentConfig(**kwargs)
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=user_message,
-                        config=cfg,
-                    )
-                    finish_s = _response_finish_reason_str(response)
-                    text = _extract_response_text(response)
-                except Exception as e:
-                    err_line = f"{model_name} ({label}): {e}"
-                    errors.append(err_line)
-                    logger.warning(
-                        "%s: 試行失敗 model=%s mode=%s %s",
-                        log_label,
-                        model_name,
-                        label,
-                        _short_err(e),
-                    )
-                    continue
-
-                if not text:
-                    errors.append(f"{model_name} ({label}): 空の応答")
-                    logger.warning(
-                        "%s: 空の応答 model=%s mode=%s", log_label, model_name, label
-                    )
-                    continue
-
-                clean_text = text.replace("```json", "").replace("```", "").strip()
-                try:
-                    parsed: Any = json.loads(clean_text)
-                except json.JSONDecodeError as e:
-                    trunc = ""
-                    if "MAX_TOKENS" in finish_s or "LENGTH" in finish_s:
-                        trunc = "（finish_reason が出力上限のため JSON が切れている可能性が高いです）"
-                    elif len(clean_text) > 8000:
-                        trunc = "（応答が長いため max_output_tokens 不足で切れた可能性があります）"
-                    errors.append(
-                        f"{model_name} ({label}): JSON 解析失敗 — {e}{trunc}"
-                    )
-                    logger.warning(
-                        "%s: JSON 解析失敗 model=%s mode=%s finish=%s %s",
-                        log_label,
-                        model_name,
-                        label,
-                        finish_s,
-                        _short_err(e),
-                    )
-                    continue
-
-                if isinstance(parsed, dict):
-                    keys = list(parsed.keys())
-                    logger.info(
-                        "%s: 成功 model=%s mode=%s top_level_keys=%s text_chars≈%d",
-                        log_label,
-                        model_name,
-                        label,
-                        keys,
-                        len(clean_text),
-                    )
-                    return parsed
-                errors.append(f"{model_name} ({label}): トップレベルが JSON オブジェクトではない")
+    for model_name in model_names:
+        for use_json in (True, False):
+            label = "json" if use_json else "plain"
+            logger.info("%s: 試行 model=%s mode=%s", log_label, model_name, label)
+            try:
+                kwargs: dict[str, Any] = {
+                    "system_instruction": system,
+                    "max_output_tokens": max_tokens,
+                }
+                if use_json:
+                    kwargs["response_mime_type"] = "application/json"
+                cfg = types.GenerateContentConfig(**kwargs)
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=user_message,
+                    config=cfg,
+                )
+                finish_s = _response_finish_reason_str(response)
+                text = _extract_response_text(response)
+            except Exception as e:
+                err_line = f"{model_name} ({label}): {e}"
+                errors.append(err_line)
                 logger.warning(
-                    "%s: JSON がオブジェクトでない model=%s mode=%s",
+                    "%s: 試行失敗 model=%s mode=%s %s",
                     log_label,
                     model_name,
                     label,
+                    _short_err(e),
                 )
+                continue
 
-        detail = "\n".join(errors[:15])
-        if len(errors) > 15:
-            detail += f"\n… ほか {len(errors) - 15} 件"
-        hint = _gemini_errors_user_hint(errors)
-        head = (
-            "Gemini から期待どおりの JSON オブジェクトを得られませんでした。"
-            f" 試したモデル: {', '.join(model_names)}。"
-        )
-        if hint:
-            head = hint + "\n\n" + head
-        else:
-            head += " .env の GEMINI_MODEL やネットワークを確認してください。"
-        logger.error(
-            "%s: 全試行失敗 attempts=%d models=%s",
-            log_label,
-            len(errors),
-            model_names,
-        )
-        raise ValueError(f"{head}\n----\n{detail}")
-    finally:
-        client.close()
+            if not text:
+                errors.append(f"{model_name} ({label}): 空の応答")
+                logger.warning(
+                    "%s: 空の応答 model=%s mode=%s", log_label, model_name, label
+                )
+                continue
+
+            clean_text = text.replace("```json", "").replace("```", "").strip()
+            try:
+                parsed: Any = json.loads(clean_text)
+            except json.JSONDecodeError as e:
+                trunc = ""
+                if "MAX_TOKENS" in finish_s or "LENGTH" in finish_s:
+                    trunc = "（finish_reason が出力上限のため JSON が切れている可能性が高いです）"
+                elif len(clean_text) > 8000:
+                    trunc = "（応答が長いため max_output_tokens 不足で切れた可能性があります）"
+                errors.append(f"{model_name} ({label}): JSON 解析失敗 — {e}{trunc}")
+                logger.warning(
+                    "%s: JSON 解析失敗 model=%s mode=%s finish=%s %s",
+                    log_label,
+                    model_name,
+                    label,
+                    finish_s,
+                    _short_err(e),
+                )
+                continue
+
+            if isinstance(parsed, dict):
+                keys = list(parsed.keys())
+                logger.info(
+                    "%s: 成功 model=%s mode=%s top_level_keys=%s text_chars≈%d",
+                    log_label,
+                    model_name,
+                    label,
+                    keys,
+                    len(clean_text),
+                )
+                _last_successful_model = model_name
+                return parsed
+            errors.append(f"{model_name} ({label}): トップレベルが JSON オブジェクトではない")
+            logger.warning(
+                "%s: JSON がオブジェクトでない model=%s mode=%s",
+                log_label,
+                model_name,
+                label,
+            )
+
+    detail = "\n".join(errors[:15])
+    if len(errors) > 15:
+        detail += f"\n… ほか {len(errors) - 15} 件"
+    hint = _gemini_errors_user_hint(errors)
+    head = (
+        "Gemini から期待どおりの JSON オブジェクトを得られませんでした。"
+        f" 試したモデル: {', '.join(model_names)}。"
+    )
+    if hint:
+        head = hint + "\n\n" + head
+    else:
+        head += " .env の GEMINI_MODEL やネットワークを確認してください。"
+    logger.error(
+        "%s: 全試行失敗 attempts=%d models=%s",
+        log_label,
+        len(errors),
+        model_names,
+    )
+    raise ValueError(f"{head}\n----\n{detail}")

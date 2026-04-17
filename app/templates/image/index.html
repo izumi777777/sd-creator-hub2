@@ -12,11 +12,15 @@
   </label>
   {% if img.s3_key %}
   <a href="{{ image_card_view_url(img) }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100" title="新しいタブで開く">
-    <img src="{{ image_card_view_url(img) }}" alt="" class="w-full h-full object-contain" loading="lazy">
+    <img src="{{ image_card_view_url(img) }}"
+         onerror="this.onerror=null; this.src='{{ url_for('image.preview', iid=img.id) }}';"
+         alt="" class="w-full h-full object-contain" loading="lazy">
   </a>
   {% elif img.s3_url %}
   <a href="{{ img.s3_url }}" target="_blank" rel="noopener noreferrer" class="block aspect-video bg-gray-100">
-    <img src="{{ img.s3_url }}" alt="" class="w-full h-full object-contain" loading="lazy">
+    <img src="{{ img.s3_url }}"
+         onerror="this.onerror=null; this.src='{{ url_for('image.preview', iid=img.id) }}';"
+         alt="" class="w-full h-full object-contain" loading="lazy">
   </a>
   {% else %}
   <div class="aspect-video bg-gray-100 flex items-center justify-center text-gray-400 text-sm">URL なし</div>

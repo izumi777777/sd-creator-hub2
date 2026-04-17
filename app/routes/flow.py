@@ -6,6 +6,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
+from sqlalchemy.orm import joinedload, load_only
 
 from app import db
 from app.models.flow_task import FlowTask
@@ -49,10 +50,23 @@ def _auto_timeline_entries(story_id: int | None) -> list[dict]:
             }
         )
 
-    qi = Image.query.filter(Image.story_id.isnot(None))
+    qi = (
+        Image.query.options(
+            load_only(
+                Image.id,
+                Image.story_id,
+                Image.file_name,
+                Image.created_at,
+                Image.s3_key,
+                Image.s3_url,
+            ),
+            joinedload(Image.story).load_only(Story.id, Story.title),
+        )
+        .filter(Image.story_id.isnot(None))
+    )
     if story_id:
         qi = qi.filter(Image.story_id == story_id)
-    for im in qi.order_by(Image.created_at.desc()).limit(400).all():
+    for im in qi.order_by(Image.created_at.desc()).limit(200).all():
         if not im.created_at:
             continue
         st = im.story

@@ -93,26 +93,32 @@ def format_story_bundle_from_dict(data: dict) -> str:
 def _advisor_story_context_for_template() -> tuple[str | None, str | None]:
     """
     相談フォームに載せるストーリー資料とラベル。
-    優先: ストーリー詳細ページの保存済み → セッションの生成ドラフト。
+    story.detail 以外では DB を触らず、セッションのドラフトのみ参照する。
     """
-    if request.endpoint == "story.detail":
-        sid = (request.view_args or {}).get("sid")
-        if sid is not None:
-            from app.models.story import Story
+    if request.endpoint != "story.detail":
+        draft = session.get(_SESSION_DRAFT_KEY)
+        if isinstance(draft, str) and draft.strip():
+            return draft.strip(), "生成ドラフト（一覧で『相談に渡す』した内容）"
+        return None, None
 
-            st = db.session.get(Story, sid)
-            if st is not None:
-                bundle = format_story_bundle_from_dict(
-                    {
-                        "title": st.title,
-                        "overview": st.overview,
-                        "narrative": st.narrative,
-                        "common_setting": st.common_setting,
-                        "chapters": st.get_chapters(),
-                    }
-                )
-                label = f"保存済み「{(st.title or '無題')[:36]}{'…' if st.title and len(st.title) > 36 else ''}」"
-                return bundle, label
+    sid = (request.view_args or {}).get("sid")
+    if sid is not None:
+        from app.models.story import Story
+
+        st = db.session.get(Story, sid)
+        if st is not None:
+            bundle = format_story_bundle_from_dict(
+                {
+                    "title": st.title,
+                    "overview": st.overview,
+                    "narrative": st.narrative,
+                    "common_setting": st.common_setting,
+                    "chapters": st.get_chapters(),
+                }
+            )
+            label = f"保存済み「{(st.title or '無題')[:36]}{'…' if st.title and len(st.title) > 36 else ''}」"
+            return bundle, label
+
     draft = session.get(_SESSION_DRAFT_KEY)
     if isinstance(draft, str) and draft.strip():
         return draft.strip(), "生成ドラフト（一覧で『相談に渡す』した内容）"

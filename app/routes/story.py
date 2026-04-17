@@ -223,13 +223,21 @@ def _session_saved_sd_forms(sid: int) -> tuple[dict[str, dict], dict[str, dict]]
     sched: dict[str, dict] = {}
     pgen = f"sd_gen_{sid}_"
     psch = f"sd_sched_{sid}_"
+    keys_to_delete: list[str] = []
     for k, v in list(session.items()):
         if not isinstance(k, str) or not isinstance(v, dict):
             continue
-        if k.startswith(pgen):
-            gen[k[len(pgen) :]] = v
-        elif k.startswith(psch):
-            sched[k[len(psch) :]] = v
+        if k.startswith("sd_gen_") or k.startswith("sd_sched_"):
+            if k.startswith(pgen):
+                gen[k[len(pgen) :]] = v
+            elif k.startswith(psch):
+                sched[k[len(psch) :]] = v
+            else:
+                keys_to_delete.append(k)
+    for k in keys_to_delete:
+        session.pop(k, None)
+    if keys_to_delete:
+        session.modified = True
     return gen, sched
 
 
@@ -1461,7 +1469,21 @@ def detail(sid: int):
     chapters = story.get_chapters()
     chapters_json_pretty = json.dumps(chapters, ensure_ascii=False, indent=2)
     story_images = (
-        Image.query.filter_by(story_id=sid)
+        Image.query.options(
+            load_only(
+                Image.id,
+                Image.character_id,
+                Image.story_id,
+                Image.work_id,
+                Image.storage_folder,
+                Image.s3_key,
+                Image.s3_url,
+                Image.file_name,
+                Image.created_at,
+            ),
+            joinedload(Image.character).load_only(Character.id, Character.name),
+        )
+        .filter_by(story_id=sid)
         .order_by(Image.created_at.desc())
         .all()
     )

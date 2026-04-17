@@ -2,6 +2,7 @@
 
 import base64
 import io
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Literal
 
 import requests
@@ -27,6 +28,7 @@ def generate_pdf(
 ) -> bytes:
     """
     画像リストから PDF を生成してバイト列で返す。
+    HTTP 画像の取得は ThreadPoolExecutor で並列化する。
 
     Args:
         image_urls: 画像 URL または data URL のリスト
@@ -40,20 +42,26 @@ def generate_pdf(
     pw, ph = PAGE_SIZES.get(page_size, PAGE_SIZES["a4"])
     bg_rgb = (0, 0, 0) if bg_color == "black" else (255, 255, 255)
 
+    img_data_map: dict[int, bytes | None] = {}
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        future_to_idx = {
+            executor.submit(_load_image, url): i for i, url in enumerate(image_urls)
+        }
+        for fut in as_completed(future_to_idx):
+            idx = future_to_idx[fut]
+            img_data_map[idx] = fut.result()
+
     pdf = FPDF(orientation="P", unit="mm", format=(pw, ph))
     pdf.set_auto_page_break(False)
 
-    for url in image_urls:
+    for i, url in enumerate(image_urls):
+        img_data = img_data_map.get(i)
+        if img_data is None:
+            continue
         pdf.add_page()
         pdf.set_fill_color(*bg_rgb)
         pdf.rect(0, 0, pw, ph, "F")
-
-        img_data = _load_image(url)
-        if img_data is None:
-            continue
-
         x, y, w, h = _calc_position(img_data, pw, ph, fit_mode)
-        # fpdf2 は一時ファイルまたはパスが安定しやすいため BytesIO を渡す
         with io.BytesIO(img_data) as img_buffer:
             pdf.image(img_buffer, x=x, y=y, w=w, h=h)
 
